@@ -1,0 +1,40 @@
+# Node modules
+node_modules/
+
+# Environment variables
+.env
+
+# Uploads directory (images)
+uploads/*
+!uploads/.gitkeep
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Build files
+dist/
+build/
+
+# Test coverage
+coverage/
+
+# Temporary files
+tmp/
+temp/
+
+# Cleanup script (temporary)
+cleanup.bat
