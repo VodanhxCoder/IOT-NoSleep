@@ -53,31 +53,6 @@ const Gallery = () => {
     }
   };
 
-  const handleDownload = async (image) => {
-    try {
-      const response = await fetch(`http://localhost:3000${image.path}`, {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
-      });
-      
-      if (!response.ok) throw new Error('Download failed');
-      
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = image.filename || 'image.jpg';
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-    } catch (error) {
-      console.error('Error downloading image:', error);
-      alert('Failed to download image');
-    }
-  };
-
   const filteredImages = (images || []).filter(img => 
     img.filename?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     img.detectedObject?.toLowerCase().includes(searchTerm.toLowerCase())
@@ -227,13 +202,14 @@ const Gallery = () => {
                   )}
                 </div>
                 <div className="mt-6 flex space-x-3">
-                  <button
-                    onClick={() => handleDownload(selectedImage)}
+                  <a
+                    href={`http://localhost:3000${selectedImage.path}`}
+                    download
                     className="btn-primary flex items-center space-x-2"
                   >
                     <Download className="w-4 h-4" />
                     <span>Download</span>
-                  </button>
+                  </a>
                   <button
                     onClick={() => {
                       handleDelete(selectedImage._id);

@@ -5,6 +5,7 @@ const nodemailer = require('nodemailer');
 const TelegramBot = require('node-telegram-bot-api');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 
 // Initialize Telegram Bot
 let telegramBot = null;
@@ -26,6 +27,34 @@ const createEmailTransporter = () => {
       pass: process.env.GMAIL_PASS
     }
   });
+};
+
+const IMAGE_SECRET = process.env.IMAGE_SECRET_KEY || '';
+const imageKeyBuffer = Buffer.alloc(16);
+if (IMAGE_SECRET) {
+  imageKeyBuffer.write(IMAGE_SECRET.substring(0, 16), 'utf8');
+}
+
+const decryptFileIfNeeded = (imagePath, req) => {
+  if (!IMAGE_SECRET) return;
+  const encryptedFlag = req.headers['x-image-encrypted'];
+  if (encryptedFlag !== '1') return;
+  const ivHeader = req.headers['x-image-iv'];
+  if (!ivHeader) {
+    console.warn('Encrypted image missing IV header');
+    return;
+  }
+  try {
+    const iv = Buffer.from(ivHeader, 'base64');
+    const encryptedData = fs.readFileSync(imagePath);
+    const decipher = crypto.createDecipheriv('aes-128-cbc', imageKeyBuffer, iv);
+    const decrypted = Buffer.concat([decipher.update(encryptedData), decipher.final()]);
+    fs.writeFileSync(imagePath, decrypted);
+    console.log('Encrypted image decrypted successfully');
+  } catch (error) {
+    console.error('Failed to decrypt image:', error.message);
+    throw new Error('Unable to decrypt uploaded image');
+  }
 };
 
 // Detect person using OpenCV (simplified - using face detection as proxy)
@@ -53,6 +82,11 @@ const detectPerson = async (imagePath) => {
 // Send email notification
 const sendEmailNotification = async (user, imageData) => {
   try {
+    if (!user?.email || user.notifyEmail === false) {
+      console.log('Email notifications disabled for user');
+      return;
+    }
+
     const transporter = createEmailTransporter();
     if (!transporter) {
       console.log('Email transporter not configured, skipping email notification');
@@ -88,7 +122,7 @@ const sendEmailNotification = async (user, imageData) => {
 // Send Telegram notification
 const sendTelegramNotification = async (user, imageData) => {
   try {
-    if (!telegramBot || !user.telegramId) {
+    if (!telegramBot || !user.telegramId || user.notifyTelegram === false) {
       console.log('Telegram not configured or user has no Telegram ID');
       return;
     }
@@ -139,6 +173,8 @@ exports.uploadImage = async (req, res) => {
     }
     
     console.log(`Normalized path: ${normalizedPath}`);
+
+    decryptFileIfNeeded(imagePath, req);
 
     // Detect person using OpenCV
     const isPersonDetected = await detectPerson(imagePath);
@@ -339,11 +375,26 @@ exports.deleteImage = async (req, res) => {
 // @access  Private (JWT)
 exports.updateConfig = async (req, res) => {
   try {
-    const { email, telegramId } = req.body;
+    const { email, telegramId, notifyEmail, notifyTelegram } = req.body;
     
     const updateData = {};
     if (email) updateData.email = email;
     if (telegramId !== undefined) updateData.telegramId = telegramId;
+    
+    const parseBoolean = (value) => {
+      if (typeof value === 'boolean') return value;
+      if (typeof value === 'string') {
+        if (value.toLowerCase() === 'true') return true;
+        if (value.toLowerCase() === 'false') return false;
+      }
+      return undefined;
+    };
+
+    const parsedNotifyEmail = parseBoolean(notifyEmail);
+    const parsedNotifyTelegram = parseBoolean(notifyTelegram);
+
+    if (parsedNotifyEmail !== undefined) updateData.notifyEmail = parsedNotifyEmail;
+    if (parsedNotifyTelegram !== undefined) updateData.notifyTelegram = parsedNotifyTelegram;
 
     const user = await User.findByIdAndUpdate(
       req.user._id,

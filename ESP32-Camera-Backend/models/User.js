@@ -24,6 +24,14 @@ const userSchema = new mongoose.Schema({
   telegramId: {
     type: String,
     default: null
+  },
+  notifyEmail: {
+    type: Boolean,
+    default: true
+  },
+  notifyTelegram: {
+    type: Boolean,
+    default: true
   }
 }, {
   timestamps: true

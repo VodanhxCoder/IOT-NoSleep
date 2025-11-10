@@ -4,10 +4,12 @@ import imageService from '../services/imageService';
 import { useAuth } from '../context/AuthContext';
 
 const Settings = () => {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const [formData, setFormData] = useState({
     email: '',
     telegramId: '',
+    notifyEmail: true,
+    notifyTelegram: true,
   });
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
@@ -17,6 +19,8 @@ const Settings = () => {
       setFormData({
         email: user.email || '',
         telegramId: user.telegramId || '',
+        notifyEmail: user.notifyEmail ?? true,
+        notifyTelegram: user.notifyTelegram ?? true,
       });
     }
   }, [user]);
@@ -27,8 +31,17 @@ const Settings = () => {
     setMessage({ type: '', text: '' });
 
     try {
-      await imageService.updateConfig(formData);
+      const updated = await imageService.updateConfig(formData);
+      await refreshUser();
       setMessage({ type: 'success', text: 'Settings updated successfully!' });
+      if (updated?.data) {
+        setFormData({
+          email: updated.data.email || '',
+          telegramId: updated.data.telegramId || '',
+          notifyEmail: updated.data.notifyEmail ?? true,
+          notifyTelegram: updated.data.notifyTelegram ?? true,
+        });
+      }
     } catch (error) {
       setMessage({ 
         type: 'error', 
@@ -38,6 +51,33 @@ const Settings = () => {
       setLoading(false);
     }
   };
+
+  const renderToggle = (checked, onChange, label, description) => (
+    <div className="flex items-center justify-between mt-4 py-3 px-4 border border-gray-200 dark:border-gray-700 rounded-lg">
+      <div>
+        <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{label}</p>
+        {description && (
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{description}</p>
+        )}
+      </div>
+      <button
+        type="button"
+        onClick={() => onChange(!checked)}
+        className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 ${
+          checked ? 'bg-primary-600' : 'bg-gray-300 dark:bg-gray-600'
+        }`}
+        role="switch"
+        aria-checked={checked}
+      >
+        <span
+          aria-hidden="true"
+          className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ${
+            checked ? 'translate-x-5' : 'translate-x-0'
+          }`}
+        />
+      </button>
+    </div>
+  );
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
@@ -81,6 +121,12 @@ const Settings = () => {
                 <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
                   Receive email alerts when a person is detected by the camera
                 </p>
+                {renderToggle(
+                  formData.notifyEmail,
+                  (value) => setFormData({ ...formData, notifyEmail: value }),
+                  'Email alerts',
+                  formData.notifyEmail ? 'Enabled' : 'Disabled'
+                )}
               </div>
             </div>
 
@@ -104,6 +150,12 @@ const Settings = () => {
                 <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
                   Get instant Telegram messages when motion is detected
                 </p>
+                {renderToggle(
+                  formData.notifyTelegram,
+                  (value) => setFormData({ ...formData, notifyTelegram: value }),
+                  'Telegram alerts',
+                  formData.notifyTelegram ? 'Enabled' : 'Disabled'
+                )}
                 <div className="mt-3 p-3 bg-blue-50 dark:bg-blue-900 rounded-lg">
                   <p className="text-sm text-blue-800 dark:text-blue-200">
                     <strong>How to get your Chat ID:</strong>

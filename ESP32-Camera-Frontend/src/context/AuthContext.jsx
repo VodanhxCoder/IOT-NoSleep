@@ -43,8 +43,22 @@ export const AuthProvider = ({ children }) => {
     return await authService.register(userData);
   };
 
+  const refreshUser = async () => {
+    try {
+      const response = await authService.getMe();
+      if (response.success && response.data) {
+        setUser(response.data);
+        localStorage.setItem('user', JSON.stringify(response.data));
+      }
+      return response;
+    } catch (error) {
+      console.error('AuthContext: failed to refresh user', error);
+      throw error;
+    }
+  };
+
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout, register }}>
+    <AuthContext.Provider value={{ user, loading, login, logout, register, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

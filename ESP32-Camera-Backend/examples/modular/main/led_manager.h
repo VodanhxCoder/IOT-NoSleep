@@ -23,9 +23,11 @@ public:
     void flashBlue(int times = 1);
     void flashWhite(int times = 1);
     void flashYellow(int times = 1);
+    void showStatusColor(uint8_t r, uint8_t g, uint8_t b, uint16_t durationMs = 300);
 
 private:
     Adafruit_NeoPixel _pixels;
+    uint8_t dim(uint8_t value);
 };
 
 #endif // LED_MANAGER_H

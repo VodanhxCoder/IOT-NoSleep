@@ -12,18 +12,6 @@ WiFiManager::WiFiManager() {
 bool WiFiManager::connect() {
     Serial.print("Connecting to WiFi");
     WiFi.mode(WIFI_STA);
-    
-    // Configure Static IP (DISABLED - using DHCP to match router subnet)
-    // IPAddress local_IP(192, 168, 2, 100);      // ESP32 IP
-    // IPAddress gateway(192, 168, 2, 1);         // Router IP
-    // IPAddress subnet(255, 255, 255, 0);
-    // IPAddress primaryDNS(8, 8, 8, 8);          // Google DNS
-    // IPAddress secondaryDNS(8, 8, 4, 4);
-    
-    // if (!WiFi.config(local_IP, gateway, subnet, primaryDNS, secondaryDNS)) {
-    //     Serial.println("✗ Static IP config failed!");
-    // }
-    
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
     
     unsigned long startTime = millis();

@@ -16,26 +16,22 @@ export const NotificationProvider = ({ children }) => {
   const [newImagesCount, setNewImagesCount] = useState(0);
   const [lastCheckTime, setLastCheckTime] = useState(Date.now());
   const [latestImage, setLatestImage] = useState(null);
-  const { user } = useAuth();
+  const { isAuthenticated } = useAuth();
 
   // Auto-check for new images every 5 seconds
   useEffect(() => {
-    if (!user) {
+    if (!isAuthenticated) {
       setNewImagesCount(0);
       return;
     }
 
     const checkForNewImages = async () => {
       try {
-        console.log('🔍 Checking for new images...', { lastCheckTime: new Date(lastCheckTime).toISOString() });
         const response = await imageService.checkNewImages(lastCheckTime);
-        console.log('📥 Check response:', response);
-        
         if (response.success && response.data) {
           const { hasNewImages, newImagesCount: count, latestImage: latest } = response.data;
           
           if (hasNewImages) {
-            console.log('🆕 New images found!', { count, latest });
             setNewImagesCount(count);
             setLatestImage(latest);
             
@@ -47,12 +43,10 @@ export const NotificationProvider = ({ children }) => {
                 tag: 'new-image'
               });
             }
-          } else {
-            console.log('✅ No new images');
           }
         }
       } catch (error) {
-        console.error('❌ Error checking for new images:', error);
+        console.error('Error checking for new images:', error);
       }
     };
 
@@ -63,7 +57,7 @@ export const NotificationProvider = ({ children }) => {
     const interval = setInterval(checkForNewImages, 5000); // Check every 5 seconds
 
     return () => clearInterval(interval);
-  }, [user, lastCheckTime]);
+  }, [isAuthenticated, lastCheckTime]);
 
   // Request notification permission on mount
   useEffect(() => {
