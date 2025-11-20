@@ -60,9 +60,7 @@ exports.register = async (req, res) => {
           id: user._id,
           username: user.username,
           email: user.email,
-          telegramId: user.telegramId,
-          notifyEmail: user.notifyEmail,
-          notifyTelegram: user.notifyTelegram
+          telegramId: user.telegramId
         },
         token
       }
@@ -126,9 +124,7 @@ exports.login = async (req, res) => {
           id: user._id,
           username: user.username,
           email: user.email,
-          telegramId: user.telegramId,
-          notifyEmail: user.notifyEmail,
-          notifyTelegram: user.notifyTelegram
+          telegramId: user.telegramId
         },
         token
       }

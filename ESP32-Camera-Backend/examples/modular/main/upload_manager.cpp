@@ -4,7 +4,6 @@
 
 #include <Arduino.h>
 #include "upload_manager.h"
-#include "server_resolver.h"
 
 UploadManager::UploadManager() {
     _lastHttpCode = 0;
@@ -18,11 +17,10 @@ bool UploadManager::upload(camera_fb_t* fb, const String& token) {
     }
     
     HTTPClient http;
-    String uploadUrl = serverResolver.buildApiUrl("/upload-image");
+    String uploadUrl = String(SERVER_BASE_URL) + "/upload-image";
     http.begin(uploadUrl);
     http.addHeader("Authorization", "Bearer " + token);
     http.addHeader("Content-Type", "image/jpeg");
-    http.addHeader("X-Image-Encrypted", "0");
     http.setTimeout(30000); // 30s timeout
     
     Serial.println("📤 Uploading to server...");
@@ -61,22 +59,16 @@ String UploadManager::getLastResponse() {
     return _lastResponse;
 }
 
-bool UploadManager::uploadImage(const uint8_t* buf, size_t len, const String& token, const String& ivBase64) {
+bool UploadManager::uploadImage(const uint8_t* buf, size_t len, const String& token) {
     if (!buf || len == 0) {
         Serial.println("✗ Invalid buffer");
         return false;
     }
     
     HTTPClient http;
-    String uploadUrl = serverResolver.buildApiUrl("/upload-image");
+    String uploadUrl = String(SERVER_BASE_URL) + "/upload-image";
     http.begin(uploadUrl);
     http.addHeader("Authorization", "Bearer " + token);
-    if (ivBase64.length() > 0) {
-        http.addHeader("X-Image-Encrypted", "1");
-        http.addHeader("X-Image-IV", ivBase64);
-    } else {
-        http.addHeader("X-Image-Encrypted", "0");
-    }
     http.setTimeout(30000); // 30s timeout
     
     Serial.println("📤 Uploading image to server...");

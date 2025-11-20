@@ -11,13 +11,17 @@
 class WiFiManager {
 public:
     WiFiManager();
-    bool connect();
+    typedef bool (*AbortCallback)();
+
+    bool connect(AbortCallback shouldAbort = nullptr);
     void disconnect();
     bool isConnected();
     IPAddress getIP();
+    bool wasAborted() const;
 
 private:
     unsigned long _timeout;
+    bool _aborted;
 };
 
 #endif // WIFI_MANAGER_H

@@ -5,7 +5,86 @@ const nodemailer = require('nodemailer');
 const TelegramBot = require('node-telegram-bot-api');
 const path = require('path');
 const fs = require('fs');
-const crypto = require('crypto');
+
+const APP_ROOT = path.join(__dirname, '..');
+const UPLOAD_DIR = path.join(APP_ROOT, 'uploads');
+
+const normalizeImagePath = (filePath) => {
+  if (!filePath) {
+    return '';
+  }
+
+  // Always work with forward slashes for consistency across platforms
+  let normalized = filePath.replace(/\\/g, '/');
+
+  if (normalized.includes('/uploads/')) {
+    const [, rest] = normalized.split('/uploads/');
+    return `/uploads/${rest}`;
+  }
+
+  if (normalized.startsWith('uploads/')) {
+    return `/${normalized}`;
+  }
+
+  if (normalized.startsWith('/uploads/')) {
+    return normalized;
+  }
+
+  return `/uploads/${path.basename(normalized)}`;
+};
+
+const resolveUploadPath = (filePath) => {
+  const normalized = normalizeImagePath(filePath);
+  if (!normalized) {
+    return '';
+  }
+
+  const relative = normalized.replace(/^\/+/, '');
+  const absolutePath = path.resolve(APP_ROOT, relative);
+
+  // Guard against path traversal
+  if (!absolutePath.startsWith(path.resolve(UPLOAD_DIR))) {
+    return '';
+  }
+
+  return absolutePath;
+};
+
+const getBaseUrl = (req) => {
+  const configured = process.env.PUBLIC_BASE_URL?.replace(/\/+$/, '');
+  if (configured) {
+    return configured;
+  }
+
+  if (!req) {
+    return '';
+  }
+
+  const host = req.get?.('host');
+  if (!host) {
+    return '';
+  }
+
+  return `${req.protocol}://${host}`;
+};
+
+const transformImageDoc = (imageDoc, req) => {
+  if (!imageDoc) {
+    return null;
+  }
+
+  const image = imageDoc.toObject ? imageDoc.toObject() : { ...imageDoc };
+  const normalizedPath = normalizeImagePath(image.path || image.filename);
+  const baseUrl = getBaseUrl(req);
+
+  image.path = normalizedPath;
+  image.url = baseUrl && normalizedPath ? `${baseUrl}${normalizedPath}` : '';
+
+  delete image.__v;
+  delete image.userId;
+
+  return image;
+};
 
 // Initialize Telegram Bot
 let telegramBot = null;
@@ -27,34 +106,6 @@ const createEmailTransporter = () => {
       pass: process.env.GMAIL_PASS
     }
   });
-};
-
-const IMAGE_SECRET = process.env.IMAGE_SECRET_KEY || '';
-const imageKeyBuffer = Buffer.alloc(16);
-if (IMAGE_SECRET) {
-  imageKeyBuffer.write(IMAGE_SECRET.substring(0, 16), 'utf8');
-}
-
-const decryptFileIfNeeded = (imagePath, req) => {
-  if (!IMAGE_SECRET) return;
-  const encryptedFlag = req.headers['x-image-encrypted'];
-  if (encryptedFlag !== '1') return;
-  const ivHeader = req.headers['x-image-iv'];
-  if (!ivHeader) {
-    console.warn('Encrypted image missing IV header');
-    return;
-  }
-  try {
-    const iv = Buffer.from(ivHeader, 'base64');
-    const encryptedData = fs.readFileSync(imagePath);
-    const decipher = crypto.createDecipheriv('aes-128-cbc', imageKeyBuffer, iv);
-    const decrypted = Buffer.concat([decipher.update(encryptedData), decipher.final()]);
-    fs.writeFileSync(imagePath, decrypted);
-    console.log('Encrypted image decrypted successfully');
-  } catch (error) {
-    console.error('Failed to decrypt image:', error.message);
-    throw new Error('Unable to decrypt uploaded image');
-  }
 };
 
 // Detect person using OpenCV (simplified - using face detection as proxy)
@@ -82,11 +133,6 @@ const detectPerson = async (imagePath) => {
 // Send email notification
 const sendEmailNotification = async (user, imageData) => {
   try {
-    if (!user?.email || user.notifyEmail === false) {
-      console.log('Email notifications disabled for user');
-      return;
-    }
-
     const transporter = createEmailTransporter();
     if (!transporter) {
       console.log('Email transporter not configured, skipping email notification');
@@ -122,7 +168,7 @@ const sendEmailNotification = async (user, imageData) => {
 // Send Telegram notification
 const sendTelegramNotification = async (user, imageData) => {
   try {
-    if (!telegramBot || !user.telegramId || user.notifyTelegram === false) {
+    if (!telegramBot || !user.telegramId) {
       console.log('Telegram not configured or user has no Telegram ID');
       return;
     }
@@ -162,19 +208,9 @@ exports.uploadImage = async (req, res) => {
 
     // Normalize path for URL (convert backslashes to forward slashes)
     // Remove any leading slashes and ensure it starts with /uploads/
-    let normalizedPath = imagePath.replace(/\\/g, '/');
-    
-    // If path starts with /app/ (Docker) or absolute path, extract just the uploads/... part
-    if (normalizedPath.includes('/uploads/')) {
-      normalizedPath = '/uploads/' + normalizedPath.split('/uploads/')[1];
-    } else if (!normalizedPath.startsWith('/uploads/')) {
-      // Ensure path starts with /uploads/
-      normalizedPath = '/uploads/' + filename;
-    }
-    
-    console.log(`Normalized path: ${normalizedPath}`);
+    const normalizedPath = normalizeImagePath(imagePath);
 
-    decryptFileIfNeeded(imagePath, req);
+    console.log(`Normalized path: ${normalizedPath}`);
 
     // Detect person using OpenCV
     const isPersonDetected = await detectPerson(imagePath);
@@ -190,6 +226,8 @@ exports.uploadImage = async (req, res) => {
         detectedObject: 'person',
         userId: req.user._id
       });
+
+      const serializedImage = transformImageDoc(image, req);
 
       // Get user data for notifications
       const user = await User.findById(req.user._id);
@@ -218,7 +256,9 @@ exports.uploadImage = async (req, res) => {
             id: image._id,
             filename: image.filename,
             timestamp: image.timestamp,
-            detectedObject: image.detectedObject
+            detectedObject: image.detectedObject,
+            path: serializedImage?.path,
+            url: serializedImage?.url
           }
         }
       });
@@ -266,18 +306,22 @@ exports.getImages = async (req, res) => {
       .sort({ timestamp: -1 })
       .skip(skip)
       .limit(limit)
-      .select('-__v');
+      .lean();
 
     const total = await Image.countDocuments({ userId: req.user._id });
+    const totalPages = Math.ceil(total / limit) || 0;
+    const serializedImages = images.map((image) => transformImageDoc(image, req));
 
     res.status(200).json({
       success: true,
       data: {
-        images,
+        images: serializedImages,
         pagination: {
           current: page,
-          total: Math.ceil(total / limit),
-          count: images.length,
+          total: totalPages,
+          totalPages,
+          pageSize: limit,
+          count: serializedImages.length,
           totalImages: total
         }
       }
@@ -300,7 +344,7 @@ exports.getImageById = async (req, res) => {
     const image = await Image.findOne({
       _id: req.params.id,
       userId: req.user._id
-    });
+    }).lean();
 
     if (!image) {
       return res.status(404).json({
@@ -311,7 +355,7 @@ exports.getImageById = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      data: image
+      data: transformImageDoc(image, req)
     });
   } catch (error) {
     console.error('Get image error:', error.message);
@@ -340,17 +384,14 @@ exports.deleteImage = async (req, res) => {
       });
     }
 
-    // Delete file from filesystem (resolve absolute path)
-    try {
-      const relPath = typeof image.path === 'string' ? image.path.replace(/^\/+/, '') : '';
-      const absolutePath = path.isAbsolute(image.path)
-        ? image.path
-        : path.join(__dirname, '..', relPath);
-      if (fs.existsSync(absolutePath)) {
-        fs.unlinkSync(absolutePath);
-      }
-    } catch (e) {
-      console.error('Error deleting image file from disk:', e.message);
+    // Delete file from filesystem
+    const absolutePath = resolveUploadPath(image.path || image.filename);
+
+    if (absolutePath && fs.existsSync(absolutePath)) {
+      fs.unlinkSync(absolutePath);
+    } else if (image.path && fs.existsSync(image.path)) {
+      // Fallback for legacy records that stored absolute paths
+      fs.unlinkSync(image.path);
     }
 
     // Delete from database
@@ -375,26 +416,11 @@ exports.deleteImage = async (req, res) => {
 // @access  Private (JWT)
 exports.updateConfig = async (req, res) => {
   try {
-    const { email, telegramId, notifyEmail, notifyTelegram } = req.body;
+    const { email, telegramId } = req.body;
     
     const updateData = {};
     if (email) updateData.email = email;
     if (telegramId !== undefined) updateData.telegramId = telegramId;
-    
-    const parseBoolean = (value) => {
-      if (typeof value === 'boolean') return value;
-      if (typeof value === 'string') {
-        if (value.toLowerCase() === 'true') return true;
-        if (value.toLowerCase() === 'false') return false;
-      }
-      return undefined;
-    };
-
-    const parsedNotifyEmail = parseBoolean(notifyEmail);
-    const parsedNotifyTelegram = parseBoolean(notifyTelegram);
-
-    if (parsedNotifyEmail !== undefined) updateData.notifyEmail = parsedNotifyEmail;
-    if (parsedNotifyTelegram !== undefined) updateData.notifyTelegram = parsedNotifyTelegram;
 
     const user = await User.findByIdAndUpdate(
       req.user._id,
@@ -434,16 +460,18 @@ exports.checkNewImages = async (req, res) => {
     // Convert timestamp to Date
     const lastCheck = new Date(parseInt(lastCheckTime));
 
-    // Count new images since last check for current user
+    // Count new images since last check
     const newImagesCount = await Image.countDocuments({
       userId: req.user._id,
       timestamp: { $gt: lastCheck }
     });
 
-    // Get the latest image for preview (current user)
-    const latestImage = newImagesCount > 0 
-      ? await Image.findOne({ userId: req.user._id }).sort({ timestamp: -1 })
+    // Get the latest image for preview
+    const latestImageDoc = newImagesCount > 0 
+      ? await Image.findOne({ userId: req.user._id }).sort({ timestamp: -1 }).lean()
       : null;
+
+    const latestImage = transformImageDoc(latestImageDoc, req);
 
     res.status(200).json({
       success: true,

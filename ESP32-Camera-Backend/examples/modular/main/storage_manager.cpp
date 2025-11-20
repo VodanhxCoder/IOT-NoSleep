@@ -5,6 +5,8 @@
 
 #include <time.h>
 #include <stdlib.h>
+#include <string.h>
+#include <stdio.h>
 #include <esp32-hal-psram.h>
 #include "storage_manager.h"
 
@@ -114,55 +116,171 @@ bool StorageManager::moveToSent(const String& pendingPath) {
     return false;
 }
 
-void StorageManager::flushPendingQueue(const String& token, UploadManager& uploader) {
+bool StorageManager::hasPending() {
     if (!_sdReady) {
-        return;
+        return false;
+    }
+    File dir = SD_MMC.open(PENDING_DIR);
+    if (!dir) {
+        return false;
+    }
+    File entry = dir.openNextFile();
+    while (entry) {
+        if (!entry.isDirectory()) {
+            entry.close();
+            dir.close();
+            return true;
+        }
+        entry.close();
+        entry = dir.openNextFile();
+    }
+    dir.close();
+    return false;
+}
+
+time_t StorageManager::timestampFromFilename(const String& path) const {
+    const char* name = path.c_str();
+    const char* base = strrchr(name, '/');
+    base = base ? base + 1 : name;
+    int y = 0, M = 0, d = 0, h = 0, m = 0, s = 0;
+    if (sscanf(base, "%4d%2d%2d_%2d%2d%2d", &y, &M, &d, &h, &m, &s) == 6) {
+        struct tm tmTime = {};
+        tmTime.tm_year = y - 1900;
+        tmTime.tm_mon = M - 1;
+        tmTime.tm_mday = d;
+        tmTime.tm_hour = h;
+        tmTime.tm_min = m;
+        tmTime.tm_sec = s;
+        time_t ts = mktime(&tmTime);
+        return ts;
+    }
+    return 0;
+}
+
+bool StorageManager::getPendingSummary(PendingSummary& summary) {
+    summary = PendingSummary();
+    if (!_sdReady) {
+        return false;
+    }
+    File dir = SD_MMC.open(PENDING_DIR);
+    if (!dir) {
+        return false;
+    }
+
+    File entry = dir.openNextFile();
+    while (entry) {
+        if (!entry.isDirectory()) {
+            summary.count++;
+            String path = String(entry.path());
+            time_t ts = entry.getLastWrite();
+            if (ts == 0) {
+                ts = timestampFromFilename(path);
+            }
+            if (ts > 0) {
+                if (summary.oldestTimestamp == 0 || ts < summary.oldestTimestamp) {
+                    summary.oldestTimestamp = ts;
+                }
+                if (ts > summary.latestTimestamp) {
+                    summary.latestTimestamp = ts;
+                }
+            }
+        }
+        entry.close();
+        entry = dir.openNextFile();
+    }
+    dir.close();
+    return summary.count > 0;
+}
+
+size_t StorageManager::flushPendingQueue(const String& token,
+                                         UploadManager& uploader,
+                                         size_t maxFiles,
+                                         PendingUploadCallback onFileStart) {
+    if (!_sdReady || maxFiles == 0) {
+        return 0;
     }
     File dir = SD_MMC.open(PENDING_DIR);
     if (!dir) {
         Serial.println("[WARN] Cannot open pending directory");
-        return;
+        return 0;
     }
 
     Serial.println("[QUEUE] Checking pending files on SD...");
+    size_t uploadedCount = 0;
     File entry = dir.openNextFile();
     while (entry) {
+        if (uploadedCount >= maxFiles) {
+            entry.close();
+            break;
+        }
+
         if (!entry.isDirectory()) {
             size_t size = entry.size();
             String path = String(entry.path());
             Serial.printf("[QUEUE] Retrying file: %s (%u bytes)\n",
                           path.c_str(), (unsigned)size);
 
-            uint8_t* buffer = (uint8_t*)ps_malloc(size);
-            if (!buffer) {
-                buffer = (uint8_t*)malloc(size);
-            }
-            if (!buffer) {
-                Serial.println("[WARN] Not enough memory to retry upload");
+            if (size == 0) {
+                Serial.println("[QUEUE] Removing zero-byte pending file");
                 entry.close();
-                entry = dir.openNextFile();
-                continue;
-            }
-
-            size_t readBytes = entry.read(buffer, size);
-            entry.close();
-
-            if (readBytes != size) {
-                Serial.println("[WARN] Failed to read entire pending file");
-                free(buffer);
                 SD_MMC.remove(path);
                 entry = dir.openNextFile();
                 continue;
             }
 
-            bool uploaded = uploader.uploadImage(buffer, size, token);
+            if (onFileStart) {
+                onFileStart(uploadedCount, path);
+            }
+
+            entry.close();
+
+            File fileToUpload = SD_MMC.open(path, FILE_READ);
+            if (!fileToUpload) {
+                Serial.println("[WARN] Failed to re-open file for upload");
+                entry = dir.openNextFile();
+                continue;
+            }
+
+            size_t fileSize = fileToUpload.size();
+            if (fileSize == 0) {
+                Serial.println("[WARN] Pending file empty after reopen - deleting");
+                fileToUpload.close();
+                SD_MMC.remove(path);
+                entry = dir.openNextFile();
+                continue;
+            }
+
+            uint8_t* buffer = (uint8_t*)ps_malloc(fileSize);
+            if (!buffer) {
+                buffer = (uint8_t*)malloc(fileSize);
+            }
+
+            if (!buffer) {
+                Serial.println("[WARN] Insufficient memory to upload pending file");
+                fileToUpload.close();
+                // Stop processing more files; try next wake when memory available
+                break;
+            }
+
+            size_t readBytes = fileToUpload.read(buffer, fileSize);
+            fileToUpload.close();
+
+            if (readBytes != fileSize) {
+                Serial.println("[WARN] Failed to read full pending file into memory");
+                free(buffer);
+                entry = dir.openNextFile();
+                continue;
+            }
+
+            bool uploaded = uploader.uploadImage(buffer, fileSize, token);
             free(buffer);
 
             if (uploaded) {
-                Serial.println("[OK] Pending file uploaded - moving to /sent");
+                Serial.println("[OK] Pending file uploaded (streamed) - moving to /sent");
                 moveToSent(path);
+                uploadedCount++;
             } else {
-                Serial.println("[WARN] Upload failed - keeping file in queue");
+                Serial.println("[WARN] Upload failed (streamed) - keeping file in queue");
                 // Stop retrying further files this wake to save power
                 break;
             }
@@ -172,4 +290,5 @@ void StorageManager::flushPendingQueue(const String& token, UploadManager& uploa
         entry = dir.openNextFile();
     }
     dir.close();
+    return uploadedCount;
 }

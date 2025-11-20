@@ -8,6 +8,7 @@
 
 #include <Arduino.h>
 #include <WiFi.h>
+#include <Preferences.h>
 #include "config.h"
 
 class ServerResolver {
@@ -44,8 +45,13 @@ private:
     String _baseUrl;
     String _mqttHost;
     bool _resolved;
+    Preferences _prefs;
+    bool _prefsReady = false;
 
     String buildBaseUrlForHost(const String& host) const;
+    bool ensurePrefs();
+    void storeLastKnownIp(const String& ip);
+    String loadLastKnownIp();
 };
 
 extern ServerResolver serverResolver;

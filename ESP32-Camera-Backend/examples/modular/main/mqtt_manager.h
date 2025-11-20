@@ -6,7 +6,6 @@
 #ifndef MQTT_MANAGER_H
 #define MQTT_MANAGER_H
 
-#include <Arduino.h>
 #include <PubSubClient.h>
 #include <WiFiClient.h>
 
@@ -14,7 +13,7 @@ class MQTTManager {
 private:
     WiFiClient wifiClient;
     PubSubClient mqttClient;
-    String brokerHost;
+    const char* broker;
     int port;
     const char* clientId;
     const char* topicImage;
@@ -22,7 +21,6 @@ private:
 
 public:
     MQTTManager(const char* brokerAddr, int brokerPort, const char* id);
-    void updateBroker(const String& host);
     bool connect();
     bool publishImage(const uint8_t* imageData, size_t imageSize);
     bool publishStatus(const char* status);

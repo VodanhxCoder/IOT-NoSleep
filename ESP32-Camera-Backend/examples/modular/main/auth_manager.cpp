@@ -4,7 +4,6 @@
 
 #include <Arduino.h>
 #include "auth_manager.h"
-#include "server_resolver.h"
 
 // Static RTC memory variable
 RTC_DATA_ATTR char AuthManager::_rtcToken[512] = "";
@@ -17,7 +16,7 @@ bool AuthManager::login() {
     Serial.println("Logging in to server...");
     
     HTTPClient http;
-    String loginUrl = serverResolver.buildApiUrl("/auth/login");
+    String loginUrl = String(SERVER_BASE_URL) + "/auth/login";
     http.begin(loginUrl);
     http.addHeader("Content-Type", "application/json");
     http.setTimeout(10000);

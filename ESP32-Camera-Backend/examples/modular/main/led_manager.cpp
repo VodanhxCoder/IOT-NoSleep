@@ -67,17 +67,6 @@ void LEDManager::flashYellow(int times) {
     }
 }
 
-void LEDManager::showStatusColor(uint8_t r, uint8_t g, uint8_t b, uint16_t durationMs) {
-    _pixels.setPixelColor(0, _pixels.Color(dim(r), dim(g), dim(b)));
-    _pixels.show();
-    delay(durationMs);
-    clear();
-}
-
-uint8_t LEDManager::dim(uint8_t value) {
-    return value / 6; // keep brightness low for status glow
-}
-
 void LEDManager::setFlash(bool on) {
     if (on) {
         // Turn on full brightness white for camera flash

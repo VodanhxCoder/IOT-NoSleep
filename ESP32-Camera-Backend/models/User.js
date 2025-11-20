@@ -32,6 +32,30 @@ const userSchema = new mongoose.Schema({
   notifyTelegram: {
     type: Boolean,
     default: true
+  },
+  notificationEmails: {
+    type: [{
+      address: {
+        type: String,
+        required: true,
+        trim: true,
+        lowercase: true
+      },
+      label: {
+        type: String,
+        trim: true,
+        maxlength: 64
+      },
+      active: {
+        type: Boolean,
+        default: true
+      },
+      createdAt: {
+        type: Date,
+        default: Date.now
+      }
+    }],
+    default: []
   }
 }, {
   timestamps: true

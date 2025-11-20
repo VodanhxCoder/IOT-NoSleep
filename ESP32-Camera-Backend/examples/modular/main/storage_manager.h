@@ -8,8 +8,17 @@
 
 #include <Arduino.h>
 #include <SD_MMC.h>
+#include <time.h>
 #include "esp_camera.h"
 #include "upload_manager.h"
+
+typedef void (*PendingUploadCallback)(size_t index, const String& path);
+
+struct PendingSummary {
+    size_t count = 0;
+    time_t oldestTimestamp = 0;
+    time_t latestTimestamp = 0;
+};
 
 class StorageManager {
 public:
@@ -33,10 +42,23 @@ public:
     bool savePendingFrame(const camera_fb_t* fb);
 
     /**
-     * Iterate every file in /pending, attempt an HTTP upload, then move the
-     * file to /sent (or leave it in /pending on failure).
+     * @return true if there are any files waiting in /pending.
      */
-    void flushPendingQueue(const String& token, UploadManager& uploader);
+    bool hasPending();
+
+    /**
+     * Fill PendingSummary with queue stats. Returns false if queue empty.
+     */
+    bool getPendingSummary(PendingSummary& summary);
+
+    /**
+     * Iterate files in /pending, attempt upload, move to /sent on success.
+     * Returns number of files uploaded during this pass.
+     */
+    size_t flushPendingQueue(const String& token,
+                             UploadManager& uploader,
+                             size_t maxFiles = SIZE_MAX,
+                             PendingUploadCallback onFileStart = nullptr);
 
 private:
     bool _sdReady;
@@ -44,6 +66,7 @@ private:
     bool ensureDirectories();
     String buildPendingPath() const;
     bool moveToSent(const String& pendingPath);
+    time_t timestampFromFilename(const String& path) const;
 };
 
 #endif // STORAGE_MANAGER_H

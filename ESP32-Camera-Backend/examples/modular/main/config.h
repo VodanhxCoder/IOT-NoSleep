@@ -30,9 +30,12 @@
 #define MQTT_TOPIC_STATUS "esp32/camera/status"
 
 // ===== HARDWARE PINS =====
-#define PIR_PIN         14
+#define PIR_PIN         0
 #define WS2812_PIN      48
 #define WS2812_COUNT    1
+
+#define STATUS_LED_PIN          20
+#define STATUS_LED_ACTIVE_LOW   0
 
 #define SD_MMC_CLK  GPIO_NUM_39
 #define SD_MMC_CMD  GPIO_NUM_38
@@ -63,6 +66,9 @@
 #define FLASH_DURATION_MS 150
 #define POST_UPLOAD_DELAY_MS 2000
 #define WIFI_TIMEOUT_MS 15000
+#define WIFI_MAX_ATTEMPTS 5
+#define WIFI_RETRY_DELAY_MS 2000
+#define PIR_WAKE_COOLDOWN_SECONDS 15
 
 // ===== IMAGE QUALITY =====
 #define FRAME_SIZE_HIGH     FRAMESIZE_SXGA

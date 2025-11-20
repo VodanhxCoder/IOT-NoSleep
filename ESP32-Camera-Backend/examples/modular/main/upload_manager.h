@@ -14,7 +14,7 @@ class UploadManager {
 public:
     UploadManager();
     bool upload(camera_fb_t* fb, const String& token);
-    bool uploadImage(const uint8_t* buf, size_t len, const String& token, const String& ivBase64 = "");
+    bool uploadImage(const uint8_t* buf, size_t len, const String& token);  // Added: direct buffer upload
     int getLastHttpCode();
     String getLastResponse();
 

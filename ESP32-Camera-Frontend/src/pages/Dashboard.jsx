@@ -2,24 +2,48 @@ import React, { useState, useEffect } from 'react';
 import { Camera, Image as ImageIcon, Activity, AlertCircle, RefreshCw } from 'lucide-react';
 import imageService from '../services/imageService';
 import { useNotification } from '../context/NotificationContext';
-import { format } from 'date-fns';
+import { format, isSameDay } from 'date-fns';
+import { buildImageUrl } from '../config/env';
 
 const Dashboard = () => {
   const [stats, setStats] = useState({ total: 0, today: 0, detected: 0 });
   const [recentImages, setRecentImages] = useState([]);
   const [loading, setLoading] = useState(true);
-  const { newImagesCount } = useNotification();
+  const { latestImage } = useNotification();
 
   useEffect(() => {
     fetchData();
   }, []);
 
-  // Auto-refresh when new images detected
   useEffect(() => {
-    if (newImagesCount > 0) {
-      fetchData();
-    }
-  }, [newImagesCount]);
+    if (!latestImage) return;
+    const normalized = {
+      ...latestImage,
+      _id: latestImage._id || latestImage.id,
+      url: latestImage.url || buildImageUrl(latestImage.path || ''),
+    };
+
+    setRecentImages((prev) => {
+      const exists = prev.some((img) => (img._id || img.id) === normalized._id);
+      if (exists) {
+        return prev;
+      }
+      const updated = [normalized, ...prev];
+      return updated.slice(0, 6);
+    });
+
+    setStats((prev) => {
+      const base = prev || { total: 0, today: 0, detected: 0 };
+      const timestamp = normalized.timestamp ? new Date(normalized.timestamp) : new Date();
+      const todayIncrement = isSameDay(timestamp, new Date()) ? 1 : 0;
+      const detectedIncrement = normalized.detectedObject === 'person' ? 1 : 0;
+      return {
+        total: (base.total || 0) + 1,
+        today: (base.today || 0) + todayIncrement,
+        detected: (base.detected || 0) + detectedIncrement,
+      };
+    });
+  }, [latestImage]);
 
   const fetchData = async () => {
     try {
@@ -117,17 +141,19 @@ const Dashboard = () => {
             </div>
           ) : (
             <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-              {recentImages.map((image) => (
+              {recentImages.map((image) => {
+                const imageSrc = image?.url || buildImageUrl(image?.path || '');
+                return (
                 <div
                   key={image._id}
                   className="relative group rounded-lg overflow-hidden shadow-md hover:shadow-xl transition-shadow"
                 >
                   <img
-                    src={`http://localhost:3000${image.path}`}
+                    src={imageSrc}
                     alt={image.filename}
                     className="w-full h-48 object-cover"
                     onError={(e) => {
-                      console.error('Image load error:', image.path);
+                      console.error('Image load error:', image.path || imageSrc);
                       e.target.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="200" height="200"%3E%3Crect fill="%23ddd" width="200" height="200"/%3E%3Ctext fill="%23999" x="50%25" y="50%25" text-anchor="middle" dy=".3em"%3ENo Image%3C/text%3E%3C/svg%3E';
                     }}
                   />
@@ -138,7 +164,8 @@ const Dashboard = () => {
                     </div>
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

@@ -3,6 +3,7 @@ import { Image as ImageIcon, Trash2, Download, Calendar, Search, RefreshCw } fro
 import imageService from '../services/imageService';
 import { useNotification } from '../context/NotificationContext';
 import { format } from 'date-fns';
+import { buildImageUrl } from '../config/env';
 
 const Gallery = () => {
   const [images, setImages] = useState([]);
@@ -11,24 +12,26 @@ const Gallery = () => {
   const [pagination, setPagination] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedImage, setSelectedImage] = useState(null);
-  const { newImagesCount, clearNotifications } = useNotification();
+  const { newImagesCount, clearNotifications, latestImage } = useNotification();
 
   useEffect(() => {
     fetchImages();
-    // Clear notifications when entering gallery
     clearNotifications();
   }, [page]);
 
-  // Auto-refresh when new images detected
   useEffect(() => {
-    if (newImagesCount > 0 && page === 1) {
-      fetchImages();
+    if (latestImage && page === 1) {
+      fetchImages({ silent: true });
+      clearNotifications();
     }
-  }, [newImagesCount]);
+  }, [latestImage, page]);
 
-  const fetchImages = async () => {
+  const fetchImages = async (options = {}) => {
+    const { silent = false } = options;
     try {
-      setLoading(true);
+      if (!silent) {
+        setLoading(true);
+      }
       const response = await imageService.getImages(page);
       if (response.success && response.data) {
         setImages(response.data.images || []);
@@ -37,7 +40,9 @@ const Gallery = () => {
     } catch (error) {
       console.error('Error fetching images:', error);
     } finally {
-      setLoading(false);
+      if (!silent) {
+        setLoading(false);
+      }
     }
   };
 
@@ -53,10 +58,36 @@ const Gallery = () => {
     }
   };
 
+  const handleDownload = async (image) => {
+    if (!image) return;
+    const url = image.url || buildImageUrl(image.path || '');
+
+    try {
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      const blob = await response.blob();
+      const blobUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = image.filename || `capture-${Date.now()}.jpg`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(blobUrl);
+    } catch (error) {
+      console.error('Failed to download image', error);
+      alert('Failed to download image. Please try again.');
+    }
+  };
+
   const filteredImages = (images || []).filter(img => 
     img.filename?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     img.detectedObject?.toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  const totalPages = pagination?.totalPages ?? pagination?.total ?? 1;
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
@@ -103,16 +134,18 @@ const Gallery = () => {
         ) : (
           <>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-              {filteredImages.map((image) => (
+              {filteredImages.map((image) => {
+                const imageSrc = image?.url || buildImageUrl(image?.path || '');
+                return (
                 <div key={image._id} className="card p-0 overflow-hidden group">
                   <div className="relative aspect-video">
                     <img
-                      src={`http://localhost:3000${image.path}`}
+                      src={imageSrc}
                       alt={image.filename}
                       className="w-full h-full object-cover cursor-pointer"
                       onClick={() => setSelectedImage(image)}
                       onError={(e) => {
-                        console.error('Image load error:', image.path);
+                        console.error('Image load error:', image.path || imageSrc);
                         e.target.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="400" height="300"%3E%3Crect fill="%23ddd" width="400" height="300"/%3E%3Ctext fill="%23999" x="50%25" y="50%25" text-anchor="middle" dy=".3em"%3EImage Not Found%3C/text%3E%3C/svg%3E';
                       }}
                     />
@@ -148,11 +181,12 @@ const Gallery = () => {
                     </div>
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
 
             {/* Pagination */}
-            {pagination && pagination.pages > 1 && (
+            {pagination && totalPages > 1 && (
               <div className="mt-8 flex justify-center space-x-2">
                 <button
                   onClick={() => setPage(page - 1)}
@@ -162,11 +196,11 @@ const Gallery = () => {
                   Previous
                 </button>
                 <span className="px-4 py-2 text-gray-700 dark:text-gray-300">
-                  Page {page} of {pagination.pages}
+                  Page {page} of {totalPages}
                 </span>
                 <button
                   onClick={() => setPage(page + 1)}
-                  disabled={page === pagination.pages}
+                  disabled={page === totalPages}
                   className="btn-secondary disabled:opacity-50"
                 >
                   Next
@@ -188,7 +222,7 @@ const Gallery = () => {
             >
               <div className="p-6">
                 <img
-                  src={`http://localhost:3000${selectedImage.path}`}
+                  src={selectedImage.url || buildImageUrl(selectedImage.path || '')}
                   alt={selectedImage.filename}
                   className="w-full rounded-lg mb-4"
                 />
@@ -202,14 +236,14 @@ const Gallery = () => {
                   )}
                 </div>
                 <div className="mt-6 flex space-x-3">
-                  <a
-                    href={`http://localhost:3000${selectedImage.path}`}
-                    download
+                  <button
+                    type="button"
+                    onClick={() => handleDownload(selectedImage)}
                     className="btn-primary flex items-center space-x-2"
                   >
                     <Download className="w-4 h-4" />
                     <span>Download</span>
-                  </a>
+                  </button>
                   <button
                     onClick={() => {
                       handleDelete(selectedImage._id);
