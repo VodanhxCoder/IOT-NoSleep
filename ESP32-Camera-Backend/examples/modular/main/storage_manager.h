@@ -47,6 +47,12 @@ public:
     bool hasPending();
 
     /**
+     * Upload all pending files using the provided UploadManager.
+     * Returns number of successfully uploaded files.
+     */
+    // size_t flushPendingQueue(const String& token, UploadManager& uploader); // Removed ambiguous overload
+
+    /**
      * Fill PendingSummary with queue stats. Returns false if queue empty.
      */
     bool getPendingSummary(PendingSummary& summary);
@@ -60,12 +66,22 @@ public:
                              size_t maxFiles = SIZE_MAX,
                              PendingUploadCallback onFileStart = nullptr);
 
+    /**
+     * @return the last saved file path.
+     */
+    String getLastPath() const { return _lastPath; }
+
+    /**
+     * Move a file from the pending folder to the sent folder.
+     * @return true on success, false on failure.
+     */
+    bool moveToSent(const String& pendingPath);
+
 private:
     bool _sdReady;
-
+    String _lastPath; // Store last saved path
     bool ensureDirectories();
     String buildPendingPath() const;
-    bool moveToSent(const String& pendingPath);
     time_t timestampFromFilename(const String& path) const;
 };
 

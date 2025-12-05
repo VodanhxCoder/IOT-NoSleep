@@ -31,12 +31,13 @@ AuthManager authMgr;
 LEDManager ledMgr;
 CameraManager cameraMgr;
 UploadManager uploadMgr;
-MQTTManager mqttMgr(MQTT_BROKER, MQTT_PORT, MQTT_CLIENT_ID); // Initialize MQTT Manager
+MQTTManager mqttMgr(MQTT_BROKER, MQTT_PORT, MQTT_CLIENT_ID, MQTT_USERNAME, MQTT_PASSWORD); // Initialize MQTT Manager
 StreamManager streamMgr;
 StorageManager storageMgr; // Re-instantiate Storage Manager
 
 // Global Server IP (Default fallback)
 char serverIP[16] = "192.168.58.24";
+bool serverIpUpdated = false; // Flag to track if IP was received via MQTT
 
 // Command flags
 bool shouldCapture = false;
@@ -53,6 +54,20 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
         msg += (char)payload[i];
     }
     Serial.printf("📩 MQTT Message [%s]: %s\n", topic, msg.c_str());
+
+    // Handle Server IP Discovery
+    if (String(topic) == "camera/server-ip") {
+        // Parse JSON: {"ip":"192.168.x.x", ...}
+        int ipStart = msg.indexOf("\"ip\":\"");
+        if (ipStart != -1) {
+            int ipEnd = msg.indexOf("\"", ipStart + 6);
+            String newIP = msg.substring(ipStart + 6, ipEnd);
+            Serial.printf("📡 Received Server IP from MQTT: %s\n", newIP.c_str());
+            strcpy(serverIP, newIP.c_str());
+            serverIpUpdated = true; // Mark as updated
+        }
+        return;
+    }
 
     if (String(topic) == MQTT_TOPIC_COMMAND) {
         if (msg == "capture") {
@@ -96,6 +111,10 @@ void setup() {
     // Serial.println("[1/4] Initializing camera...");
     // if (!cameraMgr.init()) { ... }
     Serial.println("[1/4] Camera Init Deferred (Waiting for Command/Motion)");
+
+    // 1.5 Init Status LED
+    pinMode(STATUS_LED_PIN, OUTPUT);
+    digitalWrite(STATUS_LED_PIN, LOW); // Ensure off initially
     
     // 2. Connect WiFi
     Serial.println("[2/4] Connecting to WiFi...");
@@ -105,38 +124,56 @@ void setup() {
         // Retry logic could be added here
     } else {
         ledMgr.flashBlue(2); // WiFi thành công
-        // Start mDNS
+    }
+
+    // 3. MQTT Setup & Discovery (PRIORITY)
+    // Connect MQTT first to get Server IP
+    Serial.println("[3/4] Connecting to MQTT & Discovering Server...");
+    if (USE_MQTT) {
+        mqttMgr.setCallback(mqttCallback);
+        if (mqttMgr.connect()) {
+             Serial.println("✅ MQTT Connected. Waiting for Server IP...");
+             // Wait for IP from 'camera/server-ip' (handled in callback)
+             unsigned long startWait = millis();
+             while (millis() - startWait < 3000 && !serverIpUpdated) {
+                 mqttMgr.loop(); // Process incoming messages
+                 delay(100);
+             }
+        } else {
+             Serial.println("[WARN] MQTT connect failed");
+        }
+    }
+
+    // Fallback to mDNS if MQTT didn't update IP
+    if (!serverIpUpdated) {
+        Serial.println("⚠️ MQTT Discovery timed out or failed. Trying mDNS...");
         if (MDNS.begin("esp32-cam")) {
             Serial.println("[mDNS] Responder started");
         }
-        Serial.printf("[mDNS] Resolving %s...\n", SERVER_HOSTNAME_MDNS);
-        IPAddress ip = MDNS.queryHost(SERVER_HOSTNAME_MDNS);
+        Serial.printf("[mDNS] Resolving %s (Timeout 5s)...\n", SERVER_HOSTNAME_MDNS);
+        IPAddress ip = MDNS.queryHost(SERVER_HOSTNAME_MDNS, 5000);
         if (ip != IPAddress()) {
             Serial.printf("[mDNS] Resolved: %s\n", ip.toString().c_str());
             strcpy(serverIP, ip.toString().c_str());
         } else {
-            Serial.println("[mDNS] Resolution Failed - Using Fallback IP");
+            Serial.println("[mDNS] No response (Timeout) - Check Firewall/Network");
+            Serial.printf("[mDNS] Using Fallback IP: %s\n", serverIP);
         }
+    } else {
+        Serial.printf("✅ Server IP updated via MQTT: %s\n", serverIP);
     }
 
-    // 3. Auth & MQTT Setup
-    Serial.println("[3/4] Connecting to Services...");
+    // 4. Auth Setup (Now we have the correct IP)
+    Serial.println("[4/4] Authenticating...");
     if (!authMgr.ensureLoggedIn()) {
         Serial.println("[WARN] Auth failed - uploads might fail");
         ledMgr.flashRed(2); // Auth thất bại
     } else {
         ledMgr.flashYellow(2); // Auth thành công
     }
-    
-    if (USE_MQTT) {
-        mqttMgr.setCallback(mqttCallback);
-        if (!mqttMgr.connect()) {
-             Serial.println("[WARN] MQTT connect failed");
-        }
-    }
 
-    // 4. Start Stream Server
-    Serial.println("[4/4] Starting Stream Server...");
+    // 5. Start Stream Server
+    Serial.println("[5/5] Starting Stream Server...");
     streamMgr.setCaptureCallback(processCapture); // Register callback
     streamMgr.startWebServer();
     Serial.print("Stream Ready at http://");
@@ -151,8 +188,21 @@ void setup() {
         Serial.println("⚠️ SD Card Failed");
     }
 
-    pinMode(PIR_PIN, INPUT);
-    ledMgr.flashGreen(3);
+    pinMode(PIR_PIN, INPUT_PULLDOWN);
+    
+    // Check initial state
+    if (digitalRead(PIR_PIN) == HIGH) {
+        Serial.println("⚠️ WARNING: PIR Pin is HIGH at startup!");
+        Serial.println("   If no sensor is connected, your board has a Pull-Up resistor.");
+        Serial.println("   Connect the pin to GND to stop auto-capture.");
+        
+        // Indicate warning with Orange LED (R=255, G=165, B=0)
+        ledMgr.setStatusColor(255, 165, 0);
+        delay(3000); // Hold orange for 3 seconds
+    } else {
+        ledMgr.flashGreen(3);
+    }
+
     Serial.println("✅ System Ready. Loop started.");
 }
 
@@ -213,10 +263,23 @@ void loop() {
     static unsigned long lastMotionTime = 0;
     const unsigned long MOTION_COOLDOWN = 15000; // 15s cooldown
 
-    bool motionDetected = (digitalRead(PIR_PIN) == HIGH);
+    bool motionDetected = false;
+
+    if (USE_PIR) {
+        // Software Debounce: Read twice to confirm signal is stable
+        if (digitalRead(PIR_PIN) == HIGH) {
+            delay(50); // Wait 50ms to filter noise spikes
+            if (digitalRead(PIR_PIN) == HIGH) {
+                motionDetected = true;
+            }
+        }
+    }
+
+    // Control External LED: ON when motion detected, OFF otherwise
+    digitalWrite(STATUS_LED_PIN, motionDetected ? HIGH : LOW);
     
     if (motionDetected && (millis() - lastMotionTime > MOTION_COOLDOWN)) {
-        Serial.println("🏃 Motion Detected!");
+        Serial.println("🏃 Motion Detected (Stable Signal)!");
         shouldCapture = true;
         lastMotionTime = millis();
     }
@@ -242,7 +305,15 @@ void loop() {
                 }
             }
 
+            // Flash ON (Simulated with RGB)
+            ledMgr.setFlash(true);
+            delay(150); // Wait for light to stabilize
+
             camera_fb_t* fb = esp_camera_fb_get();
+            
+            // Flash OFF
+            ledMgr.setFlash(false);
+
             if (fb) {
                 processCapture(fb);
                 esp_camera_fb_return(fb);

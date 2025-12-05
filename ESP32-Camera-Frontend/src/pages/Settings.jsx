@@ -111,7 +111,7 @@ const Settings = () => {
   };
 
   const handleEditRecipient = (recipient) => {
-    setEditingEmailId(recipient.id);
+    setEditingEmailId(recipient._id);
     setEmailForm({
       address: recipient.address,
       label: recipient.label || '',
@@ -144,7 +144,7 @@ const Settings = () => {
   const handleToggleRecipient = async (recipient) => {
     setEmailsLoading(true);
     try {
-      const response = await imageService.updateNotificationEmail(recipient.id, {
+      const response = await imageService.updateNotificationEmail(recipient._id, {
         active: !recipient.active,
       });
       setEmailRecipients(response.data || []);
@@ -305,7 +305,7 @@ const Settings = () => {
                   ) : (
                     emailRecipients.map((recipient) => (
                       <div
-                        key={recipient.id}
+                        key={recipient._id}
                         className="flex flex-col md:flex-row md:items-center justify-between border border-gray-200 dark:border-gray-700 rounded-lg p-4"
                       >
                         <div>
@@ -346,7 +346,7 @@ const Settings = () => {
                           </button>
                           <button
                             type="button"
-                            onClick={() => handleDeleteRecipient(recipient.id)}
+                            onClick={() => handleDeleteRecipient(recipient._id)}
                             className="text-red-600 hover:text-red-700 flex items-center space-x-1"
                           >
                             <Trash2 className="w-4 h-4" />

@@ -34,7 +34,7 @@ public:
 
 private:
     Adafruit_NeoPixel _pixels;
-    uint8_t dim(uint8_t value);
+    uint8_t dim(uint8_t value); // Giảm độ sáng
     bool _awakeIndicatorOn;
     void updateAuxLed(bool on);
 };

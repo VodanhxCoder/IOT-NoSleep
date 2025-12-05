@@ -21,6 +21,19 @@ const userSchema = new mongoose.Schema({
     trim: true,
     lowercase: true
   },
+  role: {
+    type: String,
+    enum: ['user', 'admin', 'manager'],
+    default: 'user'
+  },
+  isBanned: {
+    type: Boolean,
+    default: false
+  },
+  lastActive: {
+    type: Date,
+    default: Date.now
+  },
   telegramId: {
     type: String,
     default: null

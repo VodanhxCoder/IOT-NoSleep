@@ -5,14 +5,15 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { NotificationProvider } from './context/NotificationContext';
 import Navbar from './components/Navbar';
 import Login from './pages/Login';
-import Register from './pages/Register';
+// import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
 import LiveStream from './pages/LiveStream';
 import Gallery from './pages/Gallery';
 import Settings from './pages/Settings';
+import AdminDashboard from './pages/AdminDashboard';
 
 // Protected Route Component
-const ProtectedRoute = ({ children }) => {
+const ProtectedRoute = ({ children, adminOnly = false }) => {
   const { user, loading } = useAuth();
 
   if (loading) {
@@ -26,7 +27,15 @@ const ProtectedRoute = ({ children }) => {
     );
   }
 
-  return user ? children : <Navigate to="/login" replace />;
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
+
+  if (adminOnly && user.role !== 'admin' && user.role !== 'manager') {
+    return <Navigate to="/" replace />;
+  }
+
+  return children;
 };
 
 // Layout Component
@@ -48,7 +57,7 @@ function App() {
             <Routes>
               {/* Public Routes */}
               <Route path="/login" element={<Login />} />
-              <Route path="/register" element={<Register />} />
+              {/* <Route path="/register" element={<Register />} /> */}
 
               {/* Protected Routes */}
               <Route
@@ -87,6 +96,16 @@ function App() {
                   <ProtectedRoute>
                     <Layout>
                       <Settings />
+                    </Layout>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/admin"
+                element={
+                  <ProtectedRoute adminOnly={true}>
+                    <Layout>
+                      <AdminDashboard />
                     </Layout>
                   </ProtectedRoute>
                 }

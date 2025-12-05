@@ -6,8 +6,10 @@
 const mqtt = require('mqtt');
 const fs = require('fs').promises;
 const path = require('path');
+const mongoose = require('mongoose');
 const Image = require('../models/Image');
 const User = require('../models/User');
+const notificationService = require('./notificationService');
 
 class MQTTService {
   constructor() {
@@ -31,6 +33,51 @@ class MQTTService {
       command: 'esp32/camera/command',
       notification: 'esp32/camera/notification'
     };
+
+    // Buffer for chunked image uploads
+    this.chunkBuffer = new Map();
+
+    // Store last known status
+    this.lastStatus = { status: 'unknown', ip: 'unknown' };
+    
+    // Load saved state from disk
+    this.loadSavedState();
+  }
+
+  /**
+   * Load saved ESP32 state from disk
+   */
+  async loadSavedState() {
+    try {
+      const configPath = path.join(__dirname, '../config/esp32_state.json');
+      const data = await fs.readFile(configPath, 'utf8');
+      const savedState = JSON.parse(data);
+      
+      if (savedState.streamUrl) {
+        console.log('💾 Loaded saved ESP32 configuration:', savedState);
+        process.env.ESP32_STREAM_URL = savedState.streamUrl;
+        this.lastStatus = { ...this.lastStatus, ...savedState };
+      }
+    } catch (error) {
+      // Ignore error if file doesn't exist (first run)
+      if (error.code !== 'ENOENT') {
+        console.error('⚠️ Failed to load saved ESP32 state:', error.message);
+      }
+    }
+  }
+
+  /**
+   * Save ESP32 state to disk
+   */
+  async saveState(state) {
+    try {
+      const configPath = path.join(__dirname, '../config/esp32_state.json');
+      // Ensure config directory exists
+      await fs.mkdir(path.dirname(configPath), { recursive: true });
+      await fs.writeFile(configPath, JSON.stringify(state, null, 2));
+    } catch (error) {
+      console.error('❌ Failed to save ESP32 state:', error.message);
+    }
   }
 
   /**
@@ -133,10 +180,18 @@ class MQTTService {
   /**
    * Handle image upload from ESP32
    * Payload format: JSON with { userId, imageData (base64), timestamp }
+   * OR Chunked format: { id, index, total, data, userId }
    */
   async handleImageUpload(message) {
     try {
       const payload = JSON.parse(message.toString());
+      
+      // Check if this is a chunked upload
+      if (payload.index !== undefined && payload.total !== undefined && payload.id) {
+        await this.handleChunk(payload);
+        return;
+      }
+
       console.log('📸 Processing image upload via MQTT...');
 
       const { userId, imageData, timestamp, detectedObject } = payload;
@@ -145,6 +200,101 @@ class MQTTService {
       if (!userId || !imageData) {
         console.error('❌ Invalid image upload payload');
         return;
+      }
+
+      // Process the complete image
+      await this.processCompleteImage({
+        userId,
+        imageData,
+        timestamp,
+        detectedObject
+      });
+
+    } catch (error) {
+      console.error('❌ Error processing image upload:', error.message);
+    }
+  }
+
+  /**
+   * Handle chunked image upload
+   */
+  async handleChunk(payload) {
+    const { id, index, total, data, userId } = payload;
+    
+    // 1. Initialize buffer if new
+    if (!this.chunkBuffer.has(id)) {
+      this.chunkBuffer.set(id, {
+        chunks: new Array(total).fill(null),
+        receivedCount: 0,
+        timestamp: Date.now(),
+        userId: userId // Save info from first received chunk
+      });
+      
+      // Set timeout to clean up incomplete uploads
+      setTimeout(() => {
+        if (this.chunkBuffer.has(id)) {
+          console.log(`🗑️ Timeout: Dropped incomplete image ${id}`);
+          this.chunkBuffer.delete(id);
+        }
+      }, 60000); // 60s timeout
+    }
+
+    const bufferEntry = this.chunkBuffer.get(id);
+
+    // 2. Store chunk
+    if (bufferEntry.chunks[index] === null) {
+      bufferEntry.chunks[index] = data;
+      bufferEntry.receivedCount++;
+    }
+
+    console.log(`🧩 Received chunk ${index + 1}/${total} for image ${id}`);
+
+    // 3. Check if complete
+    if (bufferEntry.receivedCount === total) {
+      console.log(`🎉 Image ${id} reassembled successfully!`);
+      
+      // Reassemble full base64 string
+      const fullBase64 = bufferEntry.chunks.join('');
+      
+      // Process complete image
+      await this.processCompleteImage({
+        userId: bufferEntry.userId,
+        imageData: fullBase64,
+        timestamp: new Date().toISOString(),
+        detectedObject: 'unknown' // Default for now
+      });
+      
+      // Cleanup
+      this.chunkBuffer.delete(id);
+    }
+  }
+
+  /**
+   * Process complete image data (save to disk/DB)
+   */
+  async processCompleteImage({ userId, imageData, timestamp, detectedObject }) {
+    try {
+      // Resolve userId if it's a username (string) instead of ObjectId
+      let resolvedUserId = userId;
+      if (userId && !mongoose.Types.ObjectId.isValid(userId)) {
+        console.log(`🔍 Looking up user by username: ${userId}`);
+        const user = await User.findOne({ username: userId });
+        if (user) {
+          resolvedUserId = user._id;
+          console.log(`✅ Resolved username '${userId}' to ID: ${resolvedUserId}`);
+        } else {
+          console.error(`❌ User not found for username: ${userId}`);
+          // Optional: Create a default user or fail? 
+          // For now, let's fail gracefully but maybe we should check if there's ANY user to fallback to?
+          // Let's try to find the first user as fallback if specific user not found (for robustness)
+          const firstUser = await User.findOne();
+          if (firstUser) {
+             console.log(`⚠️ Using fallback user: ${firstUser.username}`);
+             resolvedUserId = firstUser._id;
+          } else {
+             throw new Error(`User '${userId}' not found and no users exist in DB`);
+          }
+        }
       }
 
       // Decode base64 image
@@ -167,7 +317,7 @@ class MQTTService {
         path: '/uploads/' + filename,
         timestamp: timestamp ? new Date(timestamp) : new Date(),
         detectedObject: detectedObject || 'unknown',
-        userId: userId
+        userId: resolvedUserId
       });
 
       console.log(`✅ Image record created in database`);
@@ -185,7 +335,7 @@ class MQTTService {
       }
 
       // Get user for notifications
-      const user = await User.findById(userId);
+      const user = await User.findById(resolvedUserId);
       if (user) {
         // Send notification via MQTT
         this.publish(this.topics.notification, JSON.stringify({
@@ -194,10 +344,22 @@ class MQTTService {
           detectedObject: detectedObject || 'unknown',
           timestamp: new Date().toISOString()
         }));
-      }
 
+        // Send Email & Telegram Notifications
+        // We pass the absolute path for attachments
+        const notificationData = {
+            filename,
+            path: imagePath, // Absolute path on disk
+            timestamp: timestamp ? new Date(timestamp) : new Date(),
+            detectedObject: detectedObject || 'unknown'
+        };
+
+        // Run in background
+        notificationService.sendEmail(user, notificationData);
+        notificationService.sendTelegram(user, notificationData);
+      }
     } catch (error) {
-      console.error('❌ Error processing image upload:', error.message);
+      console.error('❌ Error saving reassembled image:', error.message);
     }
   }
 
@@ -206,12 +368,37 @@ class MQTTService {
    */
   async handleStatusUpdate(message) {
     try {
-      const status = JSON.parse(message.toString());
+      // Check if message is JSON or plain text
+      let status;
+      try {
+        status = JSON.parse(message.toString());
+      } catch (e) {
+        // If not JSON, treat as plain text status string (e.g. "online", "offline")
+        status = { status: message.toString() };
+      }
+      
       console.log('📊 ESP32 Status:', status);
+
+      // Update Stream URL if provided by ESP32
+      if (status.streamUrl) {
+        console.log(`🎥 Auto-configuring Stream URL: ${status.streamUrl}`);
+        process.env.ESP32_STREAM_URL = status.streamUrl;
+        
+        // Save to disk for persistence
+        await this.saveState({
+            streamUrl: status.streamUrl,
+            ip: status.ip,
+            status: status.status,
+            lastUpdated: new Date().toISOString()
+        });
+      }
+
+      // Update last known status
+      this.lastStatus = { ...this.lastStatus, ...status, lastSeen: new Date() };
 
       // Broadcast status to frontend
       if (this.io) {
-        this.io.emit('esp32-status', status);
+        this.io.emit('esp32-status', this.lastStatus);
       }
     } catch (error) {
       console.error('❌ Error handling status update:', error.message);
@@ -260,6 +447,13 @@ class MQTTService {
    */
   sendCommand(command) {
     return this.publish(this.topics.command, JSON.stringify(command));
+  }
+
+  /**
+   * Get last known status
+   */
+  getLastStatus() {
+    return this.lastStatus;
   }
 
   /**

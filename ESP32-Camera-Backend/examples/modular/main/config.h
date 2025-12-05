@@ -9,8 +9,10 @@
 #define WIFI_SSID "..."
 #define WIFI_PASSWORD "20041610"
 
-#define SERVER_IP "192.168.2.22"                 // fallback IP
-#define SERVER_HOSTNAME "DESKTOP-1GSPB77.local"  // mDNS hostname
+// Server Configuration
+#define SERVER_HOSTNAME_MDNS "esp32-server" // Hostname to search for via mDNS
+extern char serverIP[16];                   // Global variable to store resolved IP
+
 #define SERVER_PORT 3000
 #define SERVER_API_PATH "/api"
 
@@ -23,14 +25,23 @@
 // ===== MQTT CONFIG =====
 #define USE_MQTT true
 #define MQTT_FOR_IMAGES false
-#define MQTT_BROKER "DESKTOP-1GSPB77.local"
-#define MQTT_PORT 1883
+#define MQTT_BROKER "2eff9ea6be6845b793f43e33c10067e0.s1.eu.hivemq.cloud"
+#define MQTT_PORT 8883
+#define MQTT_USERNAME "esp32-cam"
+#define MQTT_PASSWORD "Khueqp123"
 #define MQTT_CLIENT_ID "ESP32-CAM-001"
 #define MQTT_TOPIC_IMAGE "esp32/camera/image"
 #define MQTT_TOPIC_STATUS "esp32/camera/status"
+#define MQTT_TOPIC_COMMAND "esp32/camera/command" // New command topic
+
+// ===== STREAMING CONFIG =====
+// Set to true to enable MJPEG streaming (DISABLES DEEP SLEEP)
+#define ENABLE_STREAMING_MODE true  
+#define STREAM_PORT 81
 
 // ===== HARDWARE PINS =====
-#define PIR_PIN         0
+#define USE_PIR         true    // Set to false to disable PIR sensor logic completely
+#define PIR_PIN         0       // GPIO 0
 #define WS2812_PIN      48
 #define WS2812_COUNT    1
 
@@ -70,13 +81,19 @@
 #define WIFI_RETRY_DELAY_MS 2000
 #define PIR_WAKE_COOLDOWN_SECONDS 15
 
+// ===== SHARED STATE =====
+extern volatile bool pauseStreamForCapture;
+extern volatile bool captureRequested; // New flag for stream-based capture
+extern volatile bool isStreaming;      // Track streaming state globally
+
 // ===== IMAGE QUALITY =====
-#define FRAME_SIZE_HIGH     FRAMESIZE_SXGA
-#define JPEG_QUALITY_HIGH   15
+// Optimized for smoother streaming (VGA 640x480)
+#define FRAME_SIZE_HIGH     FRAMESIZE_VGA
+#define JPEG_QUALITY_HIGH   20
 #define FB_COUNT_HIGH       2
 
-#define FRAME_SIZE_STD      FRAMESIZE_SVGA
-#define JPEG_QUALITY_STD    12
+#define FRAME_SIZE_STD      FRAMESIZE_VGA
+#define JPEG_QUALITY_STD    20
 #define FB_COUNT_STD        1
 
 #endif // CONFIG_H

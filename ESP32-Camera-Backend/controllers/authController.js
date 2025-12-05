@@ -60,6 +60,7 @@ exports.register = async (req, res) => {
           id: user._id,
           username: user.username,
           email: user.email,
+          role: user.role,
           telegramId: user.telegramId
         },
         token
@@ -124,6 +125,7 @@ exports.login = async (req, res) => {
           id: user._id,
           username: user.username,
           email: user.email,
+          role: user.role,
           telegramId: user.telegramId
         },
         token
@@ -157,6 +159,66 @@ exports.getMe = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Error fetching user data',
+      error: error.message
+    });
+  }
+};
+
+// @desc    Update user profile
+// @route   PUT /api/auth/profile
+// @access  Private
+exports.updateProfile = async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    const { 
+      email, 
+      telegramId, 
+      notifyEmail, 
+      notifyTelegram, 
+      notificationEmails 
+    } = req.body;
+
+    // Update fields if provided
+    if (email) user.email = email;
+    if (telegramId !== undefined) user.telegramId = telegramId;
+    if (notifyEmail !== undefined) user.notifyEmail = notifyEmail;
+    if (notifyTelegram !== undefined) user.notifyTelegram = notifyTelegram;
+    
+    // Update notification emails list
+    if (notificationEmails && Array.isArray(notificationEmails)) {
+      user.notificationEmails = notificationEmails;
+    }
+
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Profile updated successfully',
+      data: {
+        id: user._id,
+        username: user.username,
+        email: user.email,
+        telegramId: user.telegramId,
+        notifyEmail: user.notifyEmail,
+        notifyTelegram: user.notifyTelegram,
+        notificationEmails: user.notificationEmails
+      }
+    });
+
+    console.log(`User profile updated: ${user.username}`);
+  } catch (error) {
+    console.error('Update profile error:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'Error updating profile',
       error: error.message
     });
   }
