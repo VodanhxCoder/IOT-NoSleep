@@ -6,6 +6,86 @@ const TelegramBot = require('node-telegram-bot-api');
 const path = require('path');
 const fs = require('fs');
 
+const APP_ROOT = path.join(__dirname, '..');
+const UPLOAD_DIR = path.join(APP_ROOT, 'uploads');
+
+const normalizeImagePath = (filePath) => {
+  if (!filePath) {
+    return '';
+  }
+
+  // Always work with forward slashes for consistency across platforms
+  let normalized = filePath.replace(/\\/g, '/');
+
+  if (normalized.includes('/uploads/')) {
+    const [, rest] = normalized.split('/uploads/');
+    return `/uploads/${rest}`;
+  }
+
+  if (normalized.startsWith('uploads/')) {
+    return `/${normalized}`;
+  }
+
+  if (normalized.startsWith('/uploads/')) {
+    return normalized;
+  }
+
+  return `/uploads/${path.basename(normalized)}`;
+};
+
+const resolveUploadPath = (filePath) => {
+  const normalized = normalizeImagePath(filePath);
+  if (!normalized) {
+    return '';
+  }
+
+  const relative = normalized.replace(/^\/+/, '');
+  const absolutePath = path.resolve(APP_ROOT, relative);
+
+  // Guard against path traversal
+  if (!absolutePath.startsWith(path.resolve(UPLOAD_DIR))) {
+    return '';
+  }
+
+  return absolutePath;
+};
+
+const getBaseUrl = (req) => {
+  const configured = process.env.PUBLIC_BASE_URL?.replace(/\/+$/, '');
+  if (configured) {
+    return configured;
+  }
+
+  if (!req) {
+    return '';
+  }
+
+  const host = req.get?.('host');
+  if (!host) {
+    return '';
+  }
+
+  return `${req.protocol}://${host}`;
+};
+
+const transformImageDoc = (imageDoc, req) => {
+  if (!imageDoc) {
+    return null;
+  }
+
+  const image = imageDoc.toObject ? imageDoc.toObject() : { ...imageDoc };
+  const normalizedPath = normalizeImagePath(image.path || image.filename);
+  const baseUrl = getBaseUrl(req);
+
+  image.path = normalizedPath;
+  image.url = baseUrl && normalizedPath ? `${baseUrl}${normalizedPath}` : '';
+
+  delete image.__v;
+  delete image.userId;
+
+  return image;
+};
+
 // Initialize Telegram Bot
 let telegramBot = null;
 if (process.env.TELEGRAM_TOKEN) {
@@ -128,16 +208,8 @@ exports.uploadImage = async (req, res) => {
 
     // Normalize path for URL (convert backslashes to forward slashes)
     // Remove any leading slashes and ensure it starts with /uploads/
-    let normalizedPath = imagePath.replace(/\\/g, '/');
-    
-    // If path starts with /app/ (Docker) or absolute path, extract just the uploads/... part
-    if (normalizedPath.includes('/uploads/')) {
-      normalizedPath = '/uploads/' + normalizedPath.split('/uploads/')[1];
-    } else if (!normalizedPath.startsWith('/uploads/')) {
-      // Ensure path starts with /uploads/
-      normalizedPath = '/uploads/' + filename;
-    }
-    
+    const normalizedPath = normalizeImagePath(imagePath);
+
     console.log(`Normalized path: ${normalizedPath}`);
 
     // Detect person using OpenCV
@@ -154,6 +226,8 @@ exports.uploadImage = async (req, res) => {
         detectedObject: 'person',
         userId: req.user._id
       });
+
+      const serializedImage = transformImageDoc(image, req);
 
       // Get user data for notifications
       const user = await User.findById(req.user._id);
@@ -182,7 +256,9 @@ exports.uploadImage = async (req, res) => {
             id: image._id,
             filename: image.filename,
             timestamp: image.timestamp,
-            detectedObject: image.detectedObject
+            detectedObject: image.detectedObject,
+            path: serializedImage?.path,
+            url: serializedImage?.url
           }
         }
       });
@@ -230,18 +306,22 @@ exports.getImages = async (req, res) => {
       .sort({ timestamp: -1 })
       .skip(skip)
       .limit(limit)
-      .select('-__v');
+      .lean();
 
     const total = await Image.countDocuments({ userId: req.user._id });
+    const totalPages = Math.ceil(total / limit) || 0;
+    const serializedImages = images.map((image) => transformImageDoc(image, req));
 
     res.status(200).json({
       success: true,
       data: {
-        images,
+        images: serializedImages,
         pagination: {
           current: page,
-          total: Math.ceil(total / limit),
-          count: images.length,
+          total: totalPages,
+          totalPages,
+          pageSize: limit,
+          count: serializedImages.length,
           totalImages: total
         }
       }
@@ -264,7 +344,7 @@ exports.getImageById = async (req, res) => {
     const image = await Image.findOne({
       _id: req.params.id,
       userId: req.user._id
-    });
+    }).lean();
 
     if (!image) {
       return res.status(404).json({
@@ -275,7 +355,7 @@ exports.getImageById = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      data: image
+      data: transformImageDoc(image, req)
     });
   } catch (error) {
     console.error('Get image error:', error.message);
@@ -304,17 +384,14 @@ exports.deleteImage = async (req, res) => {
       });
     }
 
-    // Delete file from filesystem (resolve absolute path)
-    try {
-      const relPath = typeof image.path === 'string' ? image.path.replace(/^\/+/, '') : '';
-      const absolutePath = path.isAbsolute(image.path)
-        ? image.path
-        : path.join(__dirname, '..', relPath);
-      if (fs.existsSync(absolutePath)) {
-        fs.unlinkSync(absolutePath);
-      }
-    } catch (e) {
-      console.error('Error deleting image file from disk:', e.message);
+    // Delete file from filesystem
+    const absolutePath = resolveUploadPath(image.path || image.filename);
+
+    if (absolutePath && fs.existsSync(absolutePath)) {
+      fs.unlinkSync(absolutePath);
+    } else if (image.path && fs.existsSync(image.path)) {
+      // Fallback for legacy records that stored absolute paths
+      fs.unlinkSync(image.path);
     }
 
     // Delete from database
@@ -383,16 +460,18 @@ exports.checkNewImages = async (req, res) => {
     // Convert timestamp to Date
     const lastCheck = new Date(parseInt(lastCheckTime));
 
-    // Count new images since last check for current user
+    // Count new images since last check
     const newImagesCount = await Image.countDocuments({
       userId: req.user._id,
       timestamp: { $gt: lastCheck }
     });
 
-    // Get the latest image for preview (current user)
-    const latestImage = newImagesCount > 0 
-      ? await Image.findOne({ userId: req.user._id }).sort({ timestamp: -1 })
+    // Get the latest image for preview
+    const latestImageDoc = newImagesCount > 0 
+      ? await Image.findOne({ userId: req.user._id }).sort({ timestamp: -1 }).lean()
       : null;
+
+    const latestImage = transformImageDoc(latestImageDoc, req);
 
     res.status(200).json({
       success: true,

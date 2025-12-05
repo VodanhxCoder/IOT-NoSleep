@@ -1,6 +1,4 @@
-/**
- * sleep_manager.h - Deep sleep management
- */
+
 
 #ifndef SLEEP_MANAGER_H
 #define SLEEP_MANAGER_H
@@ -14,6 +12,7 @@ public:
     void enterDeepSleep();
     esp_sleep_wakeup_cause_t getWakeupCause();
     bool wokeByMotion();
+    bool isMotionLineActive() const;
     
     // Optional: timer wake backup
     void enableTimerWake(uint64_t microseconds);

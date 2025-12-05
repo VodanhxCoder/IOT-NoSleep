@@ -69,11 +69,11 @@ class MQTTService {
       });
 
       this.client.on('reconnect', () => {
-        console.log('MQTT Reconnecting...');
+        console.log('🔄 MQTT Reconnecting...');
       });
 
       this.client.on('offline', () => {
-        console.log('MQTT Client offline');
+        console.log('📴 MQTT Client offline');
       });
 
       this.client.on('message', async (topic, message) => {

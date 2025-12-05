@@ -3,26 +3,7 @@
  */
 
 #include <Arduino.h>
-#include <ESPmDNS.h>
 #include "upload_manager.h"
-
-// Helper function to resolve hostname to IP
-String resolveHostnameForUpload(const char* hostname) {
-    // Check if it's already an IP address
-    if (strchr(hostname, '.') && !strstr(hostname, ".local")) {
-        return String(hostname);
-    }
-    
-    // Try to resolve mDNS
-    IPAddress serverIP = MDNS.queryHost(hostname);
-    
-    if (serverIP.toString() == "0.0.0.0") {
-        // Fallback to SERVER_IP
-        return String(SERVER_IP);
-    }
-    
-    return serverIP.toString();
-}
 
 UploadManager::UploadManager() {
     _lastHttpCode = 0;
@@ -35,11 +16,8 @@ bool UploadManager::upload(camera_fb_t* fb, const String& token) {
         return false;
     }
     
-    // Resolve hostname
-    String resolvedIP = resolveHostnameForUpload(SERVER_HOSTNAME);
-    String uploadUrl = "http://" + resolvedIP + ":3000/api/upload-image";
-    
     HTTPClient http;
+    String uploadUrl = String(SERVER_BASE_URL) + "/upload-image";
     http.begin(uploadUrl);
     http.addHeader("Authorization", "Bearer " + token);
     http.addHeader("Content-Type", "image/jpeg");
@@ -87,18 +65,13 @@ bool UploadManager::uploadImage(const uint8_t* buf, size_t len, const String& to
         return false;
     }
     
-    // Resolve hostname
-    String resolvedIP = resolveHostnameForUpload(SERVER_HOSTNAME);
-    String uploadUrl = "http://" + resolvedIP + ":3000/api/upload-image";
-    
     HTTPClient http;
+    String uploadUrl = String(SERVER_BASE_URL) + "/upload-image";
     http.begin(uploadUrl);
     http.addHeader("Authorization", "Bearer " + token);
     http.setTimeout(30000); // 30s timeout
     
     Serial.println("📤 Uploading image to server...");
-    Serial.printf("📡 Upload URL: %s\n", uploadUrl.c_str());
-    Serial.printf("📏 Image size: %d bytes\n", len);
     
     // Create multipart/form-data boundary
     String boundary = "----ESP32Boundary" + String(millis());
@@ -129,17 +102,13 @@ bool UploadManager::uploadImage(const uint8_t* buf, size_t len, const String& to
     memcpy(fullBody + bodyStart.length() + len, bodyEnd.c_str(), bodyEnd.length());
     
     // Send POST request
-    Serial.println("⏳ Sending HTTP POST...");
     _lastHttpCode = http.POST(fullBody, totalLen);
     free(fullBody);
     
     bool success = false;
-    Serial.printf("📊 HTTP Response Code: %d\n", _lastHttpCode);
-    
     if (_lastHttpCode > 0) {
         _lastResponse = http.getString();
-        Serial.printf("✅ HTTP %d\n", _lastHttpCode);
-        Serial.printf("📄 Response: %s\n", _lastResponse.substring(0, 200).c_str());
+        Serial.printf("HTTP %d\n", _lastHttpCode);
         
         if (_lastHttpCode == 200 || _lastHttpCode == 201) {
             DynamicJsonDocument doc(1024);
@@ -151,16 +120,12 @@ bool UploadManager::uploadImage(const uint8_t* buf, size_t len, const String& to
                 success = true;
             }
         } else if (_lastHttpCode == 401) {
-            Serial.println("❌ Token expired (401)");
+            Serial.println("Token expired (401)");
         } else {
-            Serial.printf("❌ Error response: %s\n", _lastResponse.substring(0, 200).c_str());
+            Serial.println("Response: " + _lastResponse.substring(0, 200));
         }
     } else {
-        Serial.printf("❌ HTTP Error: %s (code: %d)\n", http.errorToString(_lastHttpCode).c_str(), _lastHttpCode);
-        Serial.println("🔍 Troubleshooting:");
-        Serial.println("   - Check backend is running on 192.168.77.24:3000");
-        Serial.println("   - Check upload endpoint: /api/upload-image");
-        Serial.println("   - Try: curl http://192.168.77.24:3000/health");
+        Serial.printf("HTTP Error: %s\n", http.errorToString(_lastHttpCode).c_str());
     }
     
     http.end();

@@ -1,56 +1,50 @@
 /**
- * config.h - Configuration file
- * All system configurations in one place
+ * config.h - Central configuration for ESP32 firmware
  */
 
 #ifndef CONFIG_H
 #define CONFIG_H
 
-// ===== WIFI & SERVER CONFIGURATION =====
+// ===== WIFI & SERVER =====
 #define WIFI_SSID "..."
 #define WIFI_PASSWORD "20041610"
 
-// ===== SERVER IP CONFIGURATION =====
-// Option 1: Use mDNS hostname (auto-discover, no IP changes needed!)
-#define USE_MDNS true
-#define SERVER_HOSTNAME "esp32-server.local"
-#define SERVER_IP "192.168.77.24"               // Fallback if mDNS fails
-
-#define SERVER_BASE_URL "http://esp32-server.local:3000/api"
+#define SERVER_IP "192.168.2.22"                 // fallback IP
+#define SERVER_HOSTNAME "DESKTOP-1GSPB77.local"  // mDNS hostname
+#define SERVER_PORT 3000
+#define SERVER_API_PATH "/api"
 
 #define USERNAME "MinhKhue123"
 #define USER_PASSWORD "123456"
 
-// ===== MQTT CONFIGURATION =====
-// IMPORTANT: MQTT for images has reliability issues (42KB images fail)
-// Recommendation: Use HTTP for images, MQTT for status/notifications only
-#define USE_MQTT false                          // Set to true only for small messages
-#define MQTT_FOR_IMAGES false                   // Keep false - use HTTP for images
-#define MQTT_BROKER "192.168.77.24"             // ← PC WiFi IP
+// ===== IMAGE ENCRYPTION =====
+#define IMAGE_SECRET_KEY "my_super_secret_key_123"  // 16 chars for AES-128
+
+// ===== MQTT CONFIG =====
+#define USE_MQTT true
+#define MQTT_FOR_IMAGES false
+#define MQTT_BROKER "DESKTOP-1GSPB77.local"
 #define MQTT_PORT 1883
 #define MQTT_CLIENT_ID "ESP32-CAM-001"
 #define MQTT_TOPIC_IMAGE "esp32/camera/image"
 #define MQTT_TOPIC_STATUS "esp32/camera/status"
-// Optional: MQTT authentication (if enabled on broker)
-// #define MQTT_USERNAME "esp32user"
-// #define MQTT_PASSWORD "your-password"
 
 // ===== HARDWARE PINS =====
-#define PIR_PIN         14    // RTC-capable pin for ext0 wake
-#define WS2812_PIN      48    // NeoPixel LED
+#define PIR_PIN         0
+#define WS2812_PIN      48
 #define WS2812_COUNT    1
 
-// ===== HTTP STREAM SERVER =====
-#define ENABLE_STREAM_SERVER true              // Enable MJPEG streaming
-#define STREAM_SERVER_PORT 81                  // HTTP server port for streaming
-#define STREAM_FPS 15                          // Frames per second for stream
+#define STATUS_LED_PIN          20
+#define STATUS_LED_ACTIVE_LOW   0
 
-// SD_MMC pins (uncomment if using SD backup)
-#define SD_MMC_CLK  39
-#define SD_MMC_CMD  38
-#define SD_MMC_D0   40
+#define SD_MMC_CLK  GPIO_NUM_39
+#define SD_MMC_CMD  GPIO_NUM_38
+#define SD_MMC_D0   GPIO_NUM_40
+#define SD_MMC_D1   GPIO_NUM_41
+#define SD_MMC_D2   GPIO_NUM_42
+#define SD_MMC_D3   GPIO_NUM_37
 
-// ===== ESP32-S3-EYE CAMERA PINS =====
+// ===== CAMERA PINS (ESP32-S3-EYE) =====
 #define PWDN_GPIO_NUM    -1
 #define RESET_GPIO_NUM   -1
 #define XCLK_GPIO_NUM    15
@@ -68,27 +62,21 @@
 #define HREF_GPIO_NUM    7
 #define PCLK_GPIO_NUM    13
 
-// ===== TIMING CONFIGURATION =====
+// ===== TIMING =====
 #define FLASH_DURATION_MS 150
 #define POST_UPLOAD_DELAY_MS 2000
 #define WIFI_TIMEOUT_MS 15000
+#define WIFI_MAX_ATTEMPTS 5
+#define WIFI_RETRY_DELAY_MS 2000
+#define PIR_WAKE_COOLDOWN_SECONDS 15
 
 // ===== IMAGE QUALITY =====
-// For MQTT: Keep images under 100KB for reliability
-// Higher quality number = Lower quality = Smaller size
-
-// MQTT-optimized settings (PSRAM)
-#define FRAME_SIZE_HIGH     FRAMESIZE_SXGA    // 1280x1024 (smaller than UXGA)
-#define JPEG_QUALITY_HIGH   15                // Was 10, now 15 for smaller size
+#define FRAME_SIZE_HIGH     FRAMESIZE_SXGA
+#define JPEG_QUALITY_HIGH   15
 #define FB_COUNT_HIGH       2
 
-// Standard quality settings (No PSRAM)
-#define FRAME_SIZE_STD      FRAMESIZE_SVGA    // 800x600
+#define FRAME_SIZE_STD      FRAMESIZE_SVGA
 #define JPEG_QUALITY_STD    12
 #define FB_COUNT_STD        1
-
-// Note: UXGA (1600x1200) @ quality 10 = ~70KB
-//       SXGA (1280x1024) @ quality 15 = ~40-50KB (better for MQTT)
-//       To use max quality, set USE_MQTT=false and use HTTP only
 
 #endif // CONFIG_H

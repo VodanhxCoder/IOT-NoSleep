@@ -7,36 +7,33 @@
 
 WiFiManager::WiFiManager() {
     _timeout = WIFI_TIMEOUT_MS;
+    _aborted = false;
 }
 
-bool WiFiManager::connect() {
+bool WiFiManager::connect(AbortCallback shouldAbort) {
+    _aborted = false;
     Serial.print("Connecting to WiFi");
     WiFi.mode(WIFI_STA);
-    
-    // Configure Static IP (DISABLED - using DHCP to match router subnet)
-    // IPAddress local_IP(192, 168, 2, 100);      // ESP32 IP
-    // IPAddress gateway(192, 168, 2, 1);         // Router IP
-    // IPAddress subnet(255, 255, 255, 0);
-    // IPAddress primaryDNS(8, 8, 8, 8);          // Google DNS
-    // IPAddress secondaryDNS(8, 8, 4, 4);
-    
-    // if (!WiFi.config(local_IP, gateway, subnet, primaryDNS, secondaryDNS)) {
-    //     Serial.println("✗ Static IP config failed!");
-    // }
-    
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-    
+
     unsigned long startTime = millis();
     while (WiFi.status() != WL_CONNECTED) {
-        if (millis() - startTime > _timeout) {
-            Serial.println("\n✗ WiFi timeout!");
+        if (shouldAbort && shouldAbort()) {
+            Serial.println("\n[WiFi] Aborted by callback");
+            _aborted = true;
             return false;
         }
+
+        if (millis() - startTime > _timeout) {
+            Serial.println("\n�o- WiFi timeout!");
+            return false;
+        }
+
         delay(500);
         Serial.print(".");
     }
-    
-    Serial.println("\n✓ WiFi connected");
+
+    Serial.println("\n�o\" WiFi connected");
     Serial.print("IP: ");
     Serial.println(WiFi.localIP());
     return true;
@@ -53,4 +50,8 @@ bool WiFiManager::isConnected() {
 
 IPAddress WiFiManager::getIP() {
     return WiFi.localIP();
+}
+
+bool WiFiManager::wasAborted() const {
+    return _aborted;
 }

@@ -82,17 +82,9 @@ exports.register = async (req, res) => {
 // @access  Public
 exports.login = async (req, res) => {
   try {
-    // Log incoming login attempt
-    console.log('🔐 Login attempt:', {
-      ip: req.ip || req.connection.remoteAddress,
-      username: req.body.username,
-      timestamp: new Date().toISOString()
-    });
-
     // Validate input
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      console.log('❌ Validation errors:', errors.array());
       return res.status(400).json({
         success: false,
         errors: errors.array()
@@ -105,7 +97,6 @@ exports.login = async (req, res) => {
     const user = await User.findOne({ username });
 
     if (!user) {
-      console.log(`❌ User not found: ${username}`);
       return res.status(401).json({
         success: false,
         message: 'Invalid credentials'
@@ -116,7 +107,6 @@ exports.login = async (req, res) => {
     const isPasswordValid = await user.comparePassword(password);
 
     if (!isPasswordValid) {
-      console.log(`❌ Invalid password for user: ${username}`);
       return res.status(401).json({
         success: false,
         message: 'Invalid credentials'
@@ -140,10 +130,9 @@ exports.login = async (req, res) => {
       }
     });
 
-    console.log(`✅ User logged in: ${username} from ${req.ip || req.connection.remoteAddress}`);
+    console.log(`User logged in: ${username}`);
   } catch (error) {
-    console.error('❌ Login error:', error.message);
-    console.error(error.stack);
+    console.error('Login error:', error.message);
     res.status(500).json({
       success: false,
       message: 'Error logging in',

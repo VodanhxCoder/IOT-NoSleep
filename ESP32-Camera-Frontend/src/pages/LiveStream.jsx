@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Video, VideoOff, AlertCircle, RefreshCw } from 'lucide-react';
+import { Video, VideoOff, RefreshCw } from 'lucide-react';
+import { LIVE_STREAM_URL } from '../config/env';
 
 const LiveStream = () => {
   const [isConnected, setIsConnected] = useState(false);
@@ -7,7 +8,7 @@ const LiveStream = () => {
   const [loading, setLoading] = useState(false);
   const imgRef = useRef(null);
 
-  const streamUrl = 'http://localhost:3000/api/live';
+  const streamUrl = LIVE_STREAM_URL;
 
   useEffect(() => {
     connectStream();

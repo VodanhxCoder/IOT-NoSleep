@@ -1,6 +1,4 @@
-/**
- * sleep_manager.cpp - Deep sleep management implementation
- */
+
 
 #include <Arduino.h>
 #include "sleep_manager.h"
@@ -26,6 +24,10 @@ esp_sleep_wakeup_cause_t SleepManager::getWakeupCause() {
 
 bool SleepManager::wokeByMotion() {
     return _wakeupCause == ESP_SLEEP_WAKEUP_EXT0;
+}
+
+bool SleepManager::isMotionLineActive() const {
+    return digitalRead(PIR_PIN) == HIGH;
 }
 
 void SleepManager::enableTimerWake(uint64_t microseconds) {
