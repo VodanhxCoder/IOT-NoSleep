@@ -4,6 +4,7 @@
 
 #include <Arduino.h>
 #include "upload_manager.h"
+#include "config.h" // Include config.h to access SERVER_BASE_URL
 
 UploadManager::UploadManager() {
     _lastHttpCode = 0;
@@ -17,7 +18,8 @@ bool UploadManager::upload(camera_fb_t* fb, const String& token) {
     }
     
     HTTPClient http;
-    String uploadUrl = String(SERVER_BASE_URL) + "/upload-image";
+    String baseUrl = "http://" + String(serverIP) + ":" + String(SERVER_PORT) + SERVER_API_PATH;
+    String uploadUrl = baseUrl + "/upload-image";
     http.begin(uploadUrl);
     http.addHeader("Authorization", "Bearer " + token);
     http.addHeader("Content-Type", "image/jpeg");
@@ -66,7 +68,8 @@ bool UploadManager::uploadImage(const uint8_t* buf, size_t len, const String& to
     }
     
     HTTPClient http;
-    String uploadUrl = String(SERVER_BASE_URL) + "/upload-image";
+    String baseUrl = "http://" + String(serverIP) + ":" + String(SERVER_PORT) + SERVER_API_PATH;
+    String uploadUrl = baseUrl + "/upload-image";
     http.begin(uploadUrl);
     http.addHeader("Authorization", "Bearer " + token);
     http.setTimeout(30000); // 30s timeout

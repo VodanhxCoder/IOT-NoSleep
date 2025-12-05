@@ -133,6 +133,11 @@ const detectPerson = async (imagePath) => {
 // Send email notification
 const sendEmailNotification = async (user, imageData) => {
   try {
+    if (user.isBanned) {
+      console.log('🚫 User is banned, skipping email notification');
+      return;
+    }
+
     const transporter = createEmailTransporter();
     if (!transporter) {
       console.log('Email transporter not configured, skipping email notification');
@@ -168,6 +173,11 @@ const sendEmailNotification = async (user, imageData) => {
 // Send Telegram notification
 const sendTelegramNotification = async (user, imageData) => {
   try {
+    if (user.isBanned) {
+      console.log('🚫 User is banned, skipping Telegram notification');
+      return;
+    }
+
     if (!telegramBot || !user.telegramId) {
       console.log('Telegram not configured or user has no Telegram ID');
       return;
@@ -301,14 +311,19 @@ exports.getImages = async (req, res) => {
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
 
-    // Get images for current user
-    const images = await Image.find({ userId: req.user._id })
+    // Build query based on user role
+    // Admin and Manager see all images, regular user sees only their own
+    const query = (req.user.role === 'admin' || req.user.role === 'manager') ? {} : { userId: req.user._id };
+
+    // Get images
+    const images = await Image.find(query)
       .sort({ timestamp: -1 })
       .skip(skip)
       .limit(limit)
+      .populate('userId', 'username') // Populate uploader info
       .lean();
 
-    const total = await Image.countDocuments({ userId: req.user._id });
+    const total = await Image.countDocuments(query);
     const totalPages = Math.ceil(total / limit) || 0;
     const serializedImages = images.map((image) => transformImageDoc(image, req));
 
@@ -341,10 +356,11 @@ exports.getImages = async (req, res) => {
 // @access  Private (JWT)
 exports.getImageById = async (req, res) => {
   try {
-    const image = await Image.findOne({
-      _id: req.params.id,
-      userId: req.user._id
-    }).lean();
+    const query = (req.user.role === 'admin' || req.user.role === 'manager') 
+      ? { _id: req.params.id }
+      : { _id: req.params.id, userId: req.user._id };
+
+    const image = await Image.findOne(query).lean();
 
     if (!image) {
       return res.status(404).json({
@@ -372,10 +388,11 @@ exports.getImageById = async (req, res) => {
 // @access  Private (JWT)
 exports.deleteImage = async (req, res) => {
   try {
-    const image = await Image.findOne({
-      _id: req.params.id,
-      userId: req.user._id
-    });
+    const query = (req.user.role === 'admin' || req.user.role === 'manager')
+      ? { _id: req.params.id }
+      : { _id: req.params.id, userId: req.user._id };
+
+    const image = await Image.findOne(query);
 
     if (!image) {
       return res.status(404).json({
@@ -460,15 +477,21 @@ exports.checkNewImages = async (req, res) => {
     // Convert timestamp to Date
     const lastCheck = new Date(parseInt(lastCheckTime));
 
-    // Count new images since last check
-    const newImagesCount = await Image.countDocuments({
-      userId: req.user._id,
+    // Build query based on user role
+    const query = {
       timestamp: { $gt: lastCheck }
-    });
+    };
+
+    if (req.user.role !== 'admin' && req.user.role !== 'manager') {
+      query.userId = req.user._id;
+    }
+
+    // Count new images since last check
+    const newImagesCount = await Image.countDocuments(query);
 
     // Get the latest image for preview
     const latestImageDoc = newImagesCount > 0 
-      ? await Image.findOne({ userId: req.user._id }).sort({ timestamp: -1 }).lean()
+      ? await Image.findOne(query).sort({ timestamp: -1 }).lean()
       : null;
 
     const latestImage = transformImageDoc(latestImageDoc, req);
@@ -487,6 +510,69 @@ exports.checkNewImages = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Error checking for new images',
+      error: error.message
+    });
+  }
+};
+
+// @desc    Save manual snapshot
+// @route   POST /api/snapshot
+// @access  Private (JWT)
+exports.saveSnapshot = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: 'No image file provided'
+      });
+    }
+
+    const imagePath = req.file.path;
+    const filename = req.file.filename;
+
+    console.log(`Snapshot received: ${filename}`);
+
+    const normalizedPath = normalizeImagePath(imagePath);
+
+    // Save to MongoDB
+    const image = await Image.create({
+      filename,
+      path: normalizedPath,
+      timestamp: new Date(),
+      detectedObject: 'manual_snapshot',
+      userId: req.user._id
+    });
+
+    const serializedImage = transformImageDoc(image, req);
+
+    res.status(201).json({
+      success: true,
+      message: 'Snapshot saved successfully',
+      data: {
+        image: {
+          id: image._id,
+          filename: image.filename,
+          timestamp: image.timestamp,
+          detectedObject: image.detectedObject,
+          path: serializedImage?.path,
+          url: serializedImage?.url
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Snapshot error:', error.message);
+    
+    if (req.file && req.file.path) {
+      try {
+        fs.unlinkSync(req.file.path);
+      } catch (e) {
+        console.error('Error deleting file:', e.message);
+      }
+    }
+
+    res.status(500).json({
+      success: false,
+      message: 'Error saving snapshot',
       error: error.message
     });
   }

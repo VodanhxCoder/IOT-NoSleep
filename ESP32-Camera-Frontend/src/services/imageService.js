@@ -32,6 +32,20 @@ const imageService = {
     return response.data;
   },
 
+  uploadSnapshot: async (blob) => {
+    const formData = new FormData();
+    formData.append('image', blob, 'snapshot.jpg');
+    const response = await api.post('/snapshot', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    if (response.data?.data?.image) {
+      response.data.data.image = withImageUrl(response.data.data.image);
+    }
+    return response.data;
+  },
+
   getImages: async (page = 1) => {
     const response = await api.get(`/images?page=${page}`);
     if (response.data?.data?.images) {

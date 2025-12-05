@@ -9,7 +9,8 @@ const {
   getImageById,
   deleteImage,
   updateConfig,
-  checkNewImages
+  checkNewImages,
+  saveSnapshot
 } = require('../controllers/imageController');
 
 const router = express.Router();
@@ -50,6 +51,7 @@ const upload = multer({
 
 // Routes
 router.post('/upload-image', protect, upload.single('image'), uploadImage);
+router.post('/snapshot', protect, upload.single('image'), saveSnapshot);
 router.get('/images/check-new', protect, checkNewImages);
 router.get('/images', protect, getImages);
 router.get('/images/:id', protect, getImageById);

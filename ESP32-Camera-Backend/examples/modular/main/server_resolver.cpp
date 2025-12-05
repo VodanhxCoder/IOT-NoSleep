@@ -12,7 +12,7 @@ static const char* PREF_NAMESPACE = "servercfg";
 static const char* PREF_KEY_LAST_IP = "last_ip";
 
 ServerResolver::ServerResolver()
-    : _baseUrl(buildBaseUrlForHost(String(SERVER_HOSTNAME))),
+    : _baseUrl(buildBaseUrlForHost(String(SERVER_HOSTNAME_MDNS))),
       _mqttHost(String(MQTT_BROKER)),
       _resolved(false) {}
 
@@ -26,8 +26,8 @@ bool ServerResolver::resolve() {
     bool endpointReady = false;
 
     const char* hostCandidate =
-#ifdef SERVER_HOSTNAME
-        SERVER_HOSTNAME;
+#ifdef SERVER_HOSTNAME_MDNS
+        SERVER_HOSTNAME_MDNS;
 #else
         "";
 #endif

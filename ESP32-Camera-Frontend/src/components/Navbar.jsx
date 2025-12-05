@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Camera, Moon, Sun, Menu, X, Home, Image, Settings, LogOut, Video, Bell } from 'lucide-react';
+import { Camera, Moon, Sun, Menu, X, Home, Image, Settings, LogOut, Video, Bell, Shield } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { useNotification } from '../context/NotificationContext';
@@ -24,6 +24,10 @@ const Navbar = () => {
     { path: '/gallery', icon: Image, label: 'Gallery' },
     { path: '/settings', icon: Settings, label: 'Settings' },
   ];
+
+  if (user?.role === 'admin' || user?.role === 'manager') {
+    navItems.push({ path: '/admin', icon: Shield, label: 'Admin' });
+  }
 
   const isActive = (path) => location.pathname === path;
 

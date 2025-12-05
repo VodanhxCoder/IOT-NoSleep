@@ -97,46 +97,41 @@ bool StorageManager::savePendingFrame(const camera_fb_t* fb) {
     if (written == fb->len) {
         Serial.printf("[QUEUE] Saved image: %s (%u bytes)\n",
                       path.c_str(), fb->len);
+        _lastPath = path; // Store path
         return true;
     }
-
-    Serial.println("[WARN] Partial write to pending file");
-    SD_MMC.remove(path);
     return false;
 }
 
+// New method to move file from pending to sent
 bool StorageManager::moveToSent(const String& pendingPath) {
-    String fileName = pendingPath.substring(String(PENDING_DIR).length());
-    String sentPath = String(SENT_DIR) + fileName;
-    if (SD_MMC.rename(pendingPath.c_str(), sentPath.c_str())) {
+    if (!_sdReady) return false;
+    
+    String filename = pendingPath.substring(pendingPath.lastIndexOf('/') + 1);
+    String sentPath = String(SENT_DIR) + "/" + filename;
+    
+    if (SD_MMC.rename(pendingPath, sentPath)) {
+        Serial.printf("[SD] Moved to sent: %s\n", sentPath.c_str());
         return true;
+    } else {
+        Serial.println("[SD] Failed to move file to sent");
+        return false;
     }
-    // Fall back to delete when move fails to avoid re-upload loops.
-    SD_MMC.remove(pendingPath);
-    return false;
 }
 
 bool StorageManager::hasPending() {
-    if (!_sdReady) {
-        return false;
-    }
-    File dir = SD_MMC.open(PENDING_DIR);
-    if (!dir) {
-        return false;
-    }
-    File entry = dir.openNextFile();
-    while (entry) {
-        if (!entry.isDirectory()) {
-            entry.close();
-            dir.close();
-            return true;
-        }
-        entry.close();
-        entry = dir.openNextFile();
-    }
-    dir.close();
-    return false;
+    if (!_sdReady) return false;
+    File root = SD_MMC.open(PENDING_DIR);
+    if (!root || !root.isDirectory()) return false;
+    
+    File file = root.openNextFile();
+    bool hasFile = (file == true);
+    file.close();
+    root.close();
+    return hasFile;
 }
+
+
 
 time_t StorageManager::timestampFromFilename(const String& path) const {
     const char* name = path.c_str();

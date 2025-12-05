@@ -19,8 +19,14 @@ const Login = () => {
       console.log('Attempting login with:', formData.username);
       const response = await login(formData);
       console.log('Login response:', response);
-      console.log('Navigating to dashboard...');
-      navigate('/');
+      
+      if (response.success && (response.data?.user?.role === 'admin' || response.data?.user?.role === 'manager')) {
+        console.log('Admin/Manager login detected, navigating to admin dashboard...');
+        navigate('/admin');
+      } else {
+        console.log('User login detected, navigating to dashboard...');
+        navigate('/');
+      }
     } catch (err) {
       console.error('Login error:', err);
       setError(err.response?.data?.message || 'Login failed');
@@ -100,10 +106,7 @@ const Login = () => {
 
           <div className="mt-6 text-center">
             <p className="text-gray-600 dark:text-gray-400">
-              Don't have an account?{' '}
-              <Link to="/register" className="text-primary-600 dark:text-primary-400 hover:underline font-medium">
-                Sign up
-              </Link>
+              Contact administrator to create an account
             </p>
           </div>
         </div>

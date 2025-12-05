@@ -32,6 +32,17 @@ exports.protect = async (req, res, next) => {
       });
     }
 
+    // Check if user is banned
+    if (req.user.isBanned) {
+      return res.status(403).json({
+        success: false,
+        message: 'Your account has been banned. Please contact administrator.'
+      });
+    }
+
+    // Update last active
+    await User.findByIdAndUpdate(req.user.id, { lastActive: Date.now() });
+
     next();
   } catch (error) {
     console.error('Token verification error:', error.message);
